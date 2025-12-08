@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>Invoice {{ $invoice->invoice_number }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            margin-bottom: 40px;
+        }
+        .header h1 {
+            font-size: 24px;
+            margin: 0 0 10px 0;
+            color: #000;
+        }
+        .header-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 25px;
+        }
+        .section-title {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #000;
+        }
+        .details {
+            line-height: 1.6;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        table thead {
+            background-color: #f5f5f5;
+        }
+        table th {
+            padding: 10px;
+            text-align: left;
+            font-weight: bold;
+            border-bottom: 2px solid #ddd;
+        }
+        table td {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .text-right {
+            text-align: right;
+        }
+        .totals {
+            margin-top: 20px;
+            text-align: right;
+        }
+        .totals table {
+            margin-left: auto;
+            width: 300px;
+        }
+        .totals td {
+            padding: 8px;
+        }
+        .totals .total-row {
+            font-weight: bold;
+            font-size: 14px;
+            border-top: 2px solid #000;
+        }
+        .payment-info {
+            margin-top: 30px;
+            padding: 15px;
+            background-color: #e8f5e9;
+            border: 2px solid #4caf50;
+            border-radius: 5px;
+        }
+        .payment-info .paid-stamp {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2e7d32;
+            margin-bottom: 10px;
+        }
+        .payment-info table {
+            margin-top: 10px;
+            background: transparent;
+        }
+        .payment-info td {
+            padding: 5px 10px;
+            border-bottom: none;
+        }
+        .balance-due {
+            font-size: 16px;
+            font-weight: bold;
+            color: #2e7d32;
+            margin-top: 10px;
+        }
+        .footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 10px;
+            color: #666;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>INVOICE</h1>
+        <p><strong>No:</strong> {{ $invoice->invoice_number }}</p>
+        <p><strong>Date:</strong> {{ $invoice->invoice_date->format('d/m/Y') }}</p>
+    </div>
+
+    <div class="section">
+        <div class="section-title">FROM</div>
+        <div class="details">
+            <strong>{{ $invoice->person->name }}</strong><br>
+            {{ $invoice->person->address }}<br>
+            {{ $invoice->person->postal_code }}, {{ $invoice->person->city }}<br>
+            {{ $invoice->person->country }}<br>
+            <strong>Tax ID:</strong> {{ $invoice->person->dni_nie }}
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">BILL TO</div>
+        <div class="details">
+            <strong>{{ $invoice->customer_name }}</strong><br>
+            @if($invoice->customer_address)
+                {{ $invoice->customer_address }}<br>
+            @endif
+            @if($invoice->customer_tax_id)
+                <strong>Tax ID:</strong> {{ $invoice->customer_tax_id }}<br>
+            @endif
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">INVOICE DETAILS</div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 40%;">Description</th>
+                    <th class="text-right" style="width: 12%;">Quantity</th>
+                    <th style="width: 12%;">Unit</th>
+                    <th class="text-right" style="width: 16%;">Unit Price</th>
+                    <th class="text-right" style="width: 20%;">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($invoice->items as $item)
+                <tr>
+                    <td>{{ $item->description }}</td>
+                    <td class="text-right">{{ $item->quantity }}</td>
+                    <td>{{ $item->unit?->label() ?? 'Units' }}</td>
+                    <td class="text-right">{{ number_format($item->unit_price / 100, 2, '.', ',') }} {{ $invoice->currency }}</td>
+                    <td class="text-right">{{ number_format($item->total / 100, 2, '.', ',') }} {{ $invoice->currency }}</td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+
+    <div class="totals">
+        <table>
+            <tr class="total-row">
+                <td><strong>TOTAL:</strong></td>
+                <td class="text-right">
+                    <strong>{{ number_format($invoice->total_amount / 100, 2, '.', ',') }} {{ $invoice->currency }}</strong>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    @if($invoice->items->whereNotNull('stripe_transaction_id')->isNotEmpty())
+    <div class="payment-info">
+        <div class="paid-stamp">PAID</div>
+        <table>
+            <tr>
+                <td><strong>Payment Date:</strong></td>
+                <td>{{ $invoice->invoice_date->format('d/m/Y') }}</td>
+            </tr>
+            <tr>
+                <td><strong>Payment Method:</strong></td>
+                <td>Stripe</td>
+            </tr>
+        </table>
+        <div class="balance-due">
+            Balance Due: 0.00 {{ $invoice->currency }}
+        </div>
+    </div>
+    @endif
+
+    <div class="footer">
+        <p>Invoice generated on {{ $invoice->generated_at?->format('d/m/Y H:i') ?? now()->format('d/m/Y H:i') }}</p>
+    </div>
+</body>
+</html>
