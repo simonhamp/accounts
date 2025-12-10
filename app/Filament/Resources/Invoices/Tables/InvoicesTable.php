@@ -11,11 +11,14 @@ use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -49,8 +52,15 @@ class InvoicesTable
                     ->numeric()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('customer.name')
+                    ->label('Customer')
+                    ->placeholder('Unassigned')
+                    ->searchable()
+                    ->sortable(),
                 TextColumn::make('customer_name')
-                    ->searchable(),
+                    ->label('Invoice Customer Name')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('customer_tax_id')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -81,6 +91,22 @@ class InvoicesTable
                     ->options(collect(InvoiceStatus::cases())->mapWithKeys(
                         fn ($status) => [$status->value => $status->label()]
                     )),
+                SelectFilter::make('customer')
+                    ->relationship('customer', 'name')
+                    ->searchable()
+                    ->preload(),
+                Filter::make('invoice_date')
+                    ->form([
+                        DatePicker::make('from')
+                            ->label('From'),
+                        DatePicker::make('until')
+                            ->label('Until'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
+                            ->when($data['from'], fn (Builder $query, $date) => $query->whereDate('invoice_date', '>=', $date))
+                            ->when($data['until'], fn (Builder $query, $date) => $query->whereDate('invoice_date', '<=', $date));
+                    }),
             ])
             ->recordActions([
                 ActionGroup::make([

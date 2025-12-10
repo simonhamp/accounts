@@ -9,9 +9,11 @@ use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\DatePicker;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
@@ -97,6 +99,18 @@ class StripeTransactionsTable
                         'chargeback' => 'Chargeback',
                         'fee' => 'Fee',
                     ]),
+                Filter::make('transaction_date')
+                    ->form([
+                        DatePicker::make('from')
+                            ->label('From'),
+                        DatePicker::make('until')
+                            ->label('Until'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
+                            ->when($data['from'], fn (Builder $query, $date) => $query->whereDate('transaction_date', '>=', $date))
+                            ->when($data['until'], fn (Builder $query, $date) => $query->whereDate('transaction_date', '<=', $date));
+                    }),
             ])
             ->recordActions([
                 EditAction::make(),

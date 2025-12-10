@@ -2,9 +2,9 @@
 
 namespace App\Filament\Pages;
 
-use App\Enums\InvoiceStatus;
-use App\Jobs\ProcessInvoiceImport;
-use App\Models\Invoice;
+use App\Enums\BillStatus;
+use App\Jobs\ProcessBillImport;
+use App\Models\Bill;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
@@ -16,7 +16,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 
-class BatchImportInvoices extends Page implements HasForms
+class BatchImportBills extends Page implements HasForms
 {
     use InteractsWithForms;
 
@@ -26,15 +26,15 @@ class BatchImportInvoices extends Page implements HasForms
 
     public static function getNavigationGroup(): ?string
     {
-        return 'Income';
+        return 'Bills';
     }
 
     public static function getNavigationLabel(): string
     {
-        return 'Import Invoices';
+        return 'Import Bills';
     }
 
-    protected string $view = 'filament.pages.batch-import-invoices';
+    protected string $view = 'filament.pages.batch-import-bills';
 
     public ?array $data = [];
 
@@ -47,11 +47,11 @@ class BatchImportInvoices extends Page implements HasForms
     {
         return $schema
             ->components([
-                Section::make('Upload Invoice PDFs')
-                    ->description('Upload one or more PDF invoices. They will be queued for extraction and can be reviewed afterward.')
+                Section::make('Upload Supplier Bills')
+                    ->description('Upload one or more PDF bills from suppliers. They will be queued for extraction and can be reviewed afterward.')
                     ->components([
                         FileUpload::make('pdfs')
-                            ->label('Invoice PDFs')
+                            ->label('Bill PDFs')
                             ->acceptedFileTypes(['application/pdf'])
                             ->multiple()
                             ->maxFiles(50)
@@ -68,13 +68,13 @@ class BatchImportInvoices extends Page implements HasForms
         return [
             Action::make('queue')
                 ->label('Queue for Processing')
-                ->action('queueInvoices')
+                ->action('queueBills')
                 ->color('primary')
                 ->icon('heroicon-o-queue-list'),
         ];
     }
 
-    public function queueInvoices(): void
+    public function queueBills(): void
     {
         $data = $this->form->getState();
 
@@ -90,14 +90,14 @@ class BatchImportInvoices extends Page implements HasForms
         $queued = 0;
 
         foreach ($data['pdfs'] as $pdfPath) {
-            $invoice = Invoice::create([
-                'status' => InvoiceStatus::Pending,
+            $bill = Bill::create([
+                'status' => BillStatus::Pending,
                 'original_file_path' => $pdfPath,
                 'currency' => 'EUR',
                 'total_amount' => 0,
             ]);
 
-            ProcessInvoiceImport::dispatch($invoice);
+            ProcessBillImport::dispatch($bill);
             $queued++;
         }
 
@@ -105,7 +105,7 @@ class BatchImportInvoices extends Page implements HasForms
 
         Notification::make()
             ->success()
-            ->title("{$queued} invoice(s) queued for processing")
+            ->title("{$queued} bill(s) queued for processing")
             ->body('You can review them once extraction is complete.')
             ->send();
     }

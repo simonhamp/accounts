@@ -22,6 +22,11 @@ class InvoiceResource extends Resource
 
     protected static ?int $navigationSort = 2;
 
+    public static function getNavigationGroup(): ?string
+    {
+        return 'Income';
+    }
+
     public static function getNavigationBadge(): ?string
     {
         $pendingCount = Invoice::pending()->count();

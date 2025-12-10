@@ -4,7 +4,9 @@ namespace App\Filament\Resources\Invoices\Schemas;
 
 use App\Enums\InvoiceItemUnit;
 use App\Enums\InvoiceStatus;
+use App\Models\Customer;
 use App\Models\Invoice;
+use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Placeholder;
@@ -57,33 +59,92 @@ class InvoiceForm
                             ->relationship('person', 'name')
                             ->searchable()
                             ->preload()
-                            ->helperText(fn ($record) => $record?->isPending()
-                                ? 'Required before finalizing'
-                                : null),
+                            ->required()
+                            ->live()
+                            ->helperText('Required - determines the invoice number'),
 
-                        TextInput::make('invoice_number')
-                            ->helperText(fn ($record) => $record?->isPending()
-                                ? 'Will be auto-generated on finalization if left empty'
-                                : null),
+                        Placeholder::make('invoice_number_preview')
+                            ->label('Invoice Number')
+                            ->content(fn ($record, $get) => $record?->invoice_number
+                                ?? ($get('person_id')
+                                    ? \App\Models\Person::find($get('person_id'))?->getNextInvoiceNumber()
+                                    : 'Select a person first'))
+                            ->helperText('Auto-generated on save based on selected person'),
 
                         DatePicker::make('invoice_date')
-                            ->native(false),
+                            ->native(false)
+                            ->required()
+                            ->default(now()),
 
-                        TextInput::make('period_month')
-                            ->numeric()
-                            ->minValue(1)
-                            ->maxValue(12),
-
-                        TextInput::make('period_year')
-                            ->numeric()
-                            ->minValue(2000)
-                            ->maxValue(2100),
+                        DatePicker::make('due_date')
+                            ->native(false)
+                            ->helperText('Leave empty for "Due on Receipt"'),
                     ])
                     ->columns(2),
 
                 Section::make('Customer Details')
                     ->components([
-                        TextInput::make('customer_name'),
+                        Select::make('customer_id')
+                            ->relationship('customer', 'name')
+                            ->searchable()
+                            ->preload()
+                            ->live()
+                            ->afterStateUpdated(function ($state, $set, $get) {
+                                if ($state) {
+                                    $customer = Customer::find($state);
+                                    if ($customer) {
+                                        // Only pre-populate if fields are empty
+                                        if (empty($get('customer_name'))) {
+                                            $set('customer_name', $customer->name);
+                                        }
+                                        if (empty($get('customer_address'))) {
+                                            $set('customer_address', $customer->address);
+                                        }
+                                    }
+                                }
+                            })
+                            ->createOptionForm([
+                                TextInput::make('name')
+                                    ->required()
+                                    ->maxLength(255),
+                                TextInput::make('email')
+                                    ->email()
+                                    ->maxLength(255),
+                                Textarea::make('address')
+                                    ->rows(3),
+                            ])
+                            ->hintAction(
+                                Action::make('viewCustomer')
+                                    ->label('View Customer')
+                                    ->icon('heroicon-o-eye')
+                                    ->modalHeading(fn ($get) => Customer::find($get('customer_id'))?->name ?? 'Customer Details')
+                                    ->modalContent(function ($get) {
+                                        $customer = Customer::find($get('customer_id'));
+                                        if (! $customer) {
+                                            return new HtmlString('<p class="text-gray-500">No customer selected</p>');
+                                        }
+
+                                        return new HtmlString(
+                                            '<div class="space-y-4">'.
+                                            '<div><strong class="text-gray-500 dark:text-gray-400">Name:</strong><br>'
+                                                .e($customer->name).'</div>'.
+                                            '<div><strong class="text-gray-500 dark:text-gray-400">Email:</strong><br>'
+                                                .($customer->email ? e($customer->email) : '<span class="text-gray-400">Not set</span>').'</div>'.
+                                            '<div><strong class="text-gray-500 dark:text-gray-400">Address:</strong><br>'
+                                                .($customer->address ? nl2br(e($customer->address)) : '<span class="text-gray-400">Not set</span>').'</div>'.
+                                            '<div><strong class="text-gray-500 dark:text-gray-400">Total Invoices:</strong><br>'
+                                                .$customer->invoices()->count().'</div>'.
+                                            '</div>'
+                                        );
+                                    })
+                                    ->modalSubmitAction(false)
+                                    ->modalCancelActionLabel('Close')
+                                    ->visible(fn ($get) => ! empty($get('customer_id')))
+                            )
+                            ->helperText('Select a customer to pre-fill details below'),
+
+                        TextInput::make('customer_name')
+                            ->helperText('Leave empty to use customer record name'),
 
                         Select::make('selected_address')
                             ->label('Select Address')
@@ -101,7 +162,8 @@ class InvoiceForm
 
                         Textarea::make('customer_address')
                             ->rows(3)
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->helperText('Leave empty to use customer record address'),
 
                         TextInput::make('customer_tax_id'),
                     ])
@@ -109,15 +171,28 @@ class InvoiceForm
 
                 Section::make('Amounts')
                     ->components([
-                        TextInput::make('total_amount')
-                            ->numeric()
-                            ->suffix('cents')
-                            ->helperText('Amount in cents (e.g., 10000 = 100.00). Negative amounts create a Credit Note.')
-                            ->live(onBlur: true),
-
-                        TextInput::make('currency')
+                        Select::make('currency')
+                            ->options([
+                                'EUR' => 'EUR - Euro',
+                                'USD' => 'USD - US Dollar',
+                                'GBP' => 'GBP - British Pound',
+                            ])
                             ->default('EUR')
-                            ->maxLength(3),
+                            ->required(),
+
+                        Placeholder::make('total_amount_display')
+                            ->label('Total Amount')
+                            ->content(function ($record) {
+                                if (! $record?->exists) {
+                                    return 'Will be calculated from line items';
+                                }
+
+                                $total = $record->items()->sum('total');
+                                $currency = $record->currency ?? 'EUR';
+
+                                return number_format($total / 100, 2).' '.$currency;
+                            })
+                            ->helperText('Automatically calculated from line items'),
 
                         Select::make('parent_invoice_id')
                             ->label('Original Invoice (for Credit Note)')
@@ -125,7 +200,7 @@ class InvoiceForm
                             ->getOptionLabelFromRecordUsing(fn (Invoice $record) => "{$record->invoice_number} - {$record->customer_name}")
                             ->searchable(['invoice_number', 'customer_name'])
                             ->preload()
-                            ->visible(fn ($get) => ($get('total_amount') ?? 0) < 0)
+                            ->visible(fn ($record) => $record?->total_amount < 0)
                             ->helperText('Select the invoice this credit note applies to')
                             ->columnSpanFull(),
                     ])

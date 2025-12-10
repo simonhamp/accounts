@@ -16,9 +16,11 @@ class Invoice extends Model
 
     protected $fillable = [
         'person_id',
+        'customer_id',
         'parent_invoice_id',
         'invoice_number',
         'invoice_date',
+        'due_date',
         'period_month',
         'period_year',
         'customer_name',
@@ -39,6 +41,7 @@ class Invoice extends Model
     {
         return [
             'invoice_date' => 'date',
+            'due_date' => 'date',
             'period_month' => 'integer',
             'period_year' => 'integer',
             'total_amount' => 'integer',
@@ -48,9 +51,54 @@ class Invoice extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::saving(function (Invoice $invoice) {
+            // Calculate period from invoice_date
+            if ($invoice->invoice_date) {
+                $invoice->period_month = $invoice->invoice_date->month;
+                $invoice->period_year = $invoice->invoice_date->year;
+            }
+
+            // Calculate total from line items (only if items exist and total wasn't explicitly set)
+            if ($invoice->exists && $invoice->items()->exists()) {
+                $invoice->total_amount = $invoice->items()->sum('total');
+            }
+        });
+    }
+
+    public function recalculateTotal(): void
+    {
+        $this->total_amount = $this->items()->sum('total');
+        $this->saveQuietly();
+    }
+
+    public function getPreviewInvoiceNumber(): ?string
+    {
+        if ($this->invoice_number) {
+            return $this->invoice_number;
+        }
+
+        if (! $this->person) {
+            return null;
+        }
+
+        return $this->person->getNextInvoiceNumber();
+    }
+
+    public function isDueOnReceipt(): bool
+    {
+        return $this->due_date === null;
+    }
+
     public function person(): BelongsTo
     {
         return $this->belongsTo(Person::class);
+    }
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     public function parentInvoice(): BelongsTo

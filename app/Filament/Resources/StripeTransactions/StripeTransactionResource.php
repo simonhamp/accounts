@@ -22,6 +22,11 @@ class StripeTransactionResource extends Resource
 
     protected static ?int $navigationSort = 1;
 
+    public static function getNavigationGroup(): ?string
+    {
+        return 'Income';
+    }
+
     public static function getNavigationBadge(): ?string
     {
         $count = StripeTransaction::whereDoesntHave('invoiceItem')

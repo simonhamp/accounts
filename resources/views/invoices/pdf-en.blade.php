@@ -117,6 +117,7 @@
         <h1>{{ $invoice->isCreditNote() ? 'CREDIT NOTE' : 'INVOICE' }}</h1>
         <p><strong>No:</strong> {{ $invoice->invoice_number }}</p>
         <p><strong>Date:</strong> {{ $invoice->invoice_date->format('d/m/Y') }}</p>
+        <p><strong>Due:</strong> {{ $invoice->due_date ? $invoice->due_date->format('d/m/Y') : 'Due on Receipt' }}</p>
         @if($invoice->isCreditNote() && $invoice->parentInvoice)
         <p><strong>Original Invoice Reference:</strong> {{ $invoice->parentInvoice->invoice_number }}</p>
         @endif
@@ -133,12 +134,16 @@
         </div>
     </div>
 
+    @php
+        $displayCustomerName = $invoice->customer_name ?: $invoice->customer?->name;
+        $displayCustomerAddress = $invoice->customer_address ?: $invoice->customer?->address;
+    @endphp
     <div class="section">
         <div class="section-title">BILL TO</div>
         <div class="details">
-            <strong>{{ $invoice->customer_name }}</strong><br>
-            @if($invoice->customer_address)
-                {{ $invoice->customer_address }}<br>
+            <strong>{{ $displayCustomerName }}</strong><br>
+            @if($displayCustomerAddress)
+                {{ $displayCustomerAddress }}<br>
             @endif
             @if($invoice->customer_tax_id)
                 <strong>Tax ID:</strong> {{ $invoice->customer_tax_id }}<br>

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BillController;
 use App\Http\Controllers\InvoiceController;
 use App\Livewire\Settings\Appearance;
 use App\Livewire\Settings\Password;
@@ -38,4 +39,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('invoices/{invoice}/download-pdf/{language?}', [InvoiceController::class, 'downloadPdf'])
         ->where('language', 'es|en')
         ->name('invoices.download-pdf');
+
+    Route::get('bills/{bill}/original-pdf', [BillController::class, 'showOriginalPdf'])
+        ->name('bills.original-pdf');
 });

@@ -15,6 +15,12 @@ class EditInvoice extends EditRecord
 {
     protected static string $resource = InvoiceResource::class;
 
+    protected function afterSave(): void
+    {
+        // Recalculate total from line items
+        $this->record->recalculateTotal();
+    }
+
     protected function getHeaderActions(): array
     {
         return [
