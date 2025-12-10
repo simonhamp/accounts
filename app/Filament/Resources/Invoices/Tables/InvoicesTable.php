@@ -159,6 +159,27 @@ class InvoicesTable
                                 ->body("Invoice {$record->invoice_number} PDF has been regenerated.")
                                 ->send();
                         }),
+                    Action::make('download')
+                        ->label('Download PDF')
+                        ->icon('heroicon-o-arrow-down-tray')
+                        ->visible(fn ($record) => $record->isFinalized() && $record->pdf_path)
+                        ->form([
+                            Radio::make('language')
+                                ->label('Language')
+                                ->options([
+                                    'es' => 'Spanish (Español)',
+                                    'en' => 'English',
+                                ])
+                                ->default('es')
+                                ->required(),
+                        ])
+                        ->action(function ($record, array $data) {
+                            $language = $data['language'];
+
+                            return redirect()->to(
+                                route('invoices.download-pdf', ['invoice' => $record, 'language' => $language])
+                            );
+                        }),
                 ]),
             ])
             ->toolbarActions([
