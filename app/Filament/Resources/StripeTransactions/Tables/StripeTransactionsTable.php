@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\StripeTransactions\Tables;
 
+use App\Models\StripeAccount;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -23,7 +24,8 @@ class StripeTransactionsTable
     {
         return $table
             ->columns([
-                TextColumn::make('stripeAccount.id')
+                TextColumn::make('stripeAccount.account_name')
+                    ->label('Account')
                     ->searchable(),
                 TextColumn::make('stripe_transaction_id')
                     ->searchable(),
@@ -56,6 +58,9 @@ class StripeTransactionsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                SelectFilter::make('stripe_account_id')
+                    ->label('Account')
+                    ->options(fn () => StripeAccount::pluck('account_name', 'id')->toArray()),
                 TernaryFilter::make('is_complete')
                     ->label('Complete')
                     ->placeholder('All transactions')
