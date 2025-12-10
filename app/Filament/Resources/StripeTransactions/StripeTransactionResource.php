@@ -24,7 +24,9 @@ class StripeTransactionResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $count = StripeTransaction::whereDoesntHave('invoiceItem')->count();
+        $count = StripeTransaction::whereDoesntHave('invoiceItem')
+            ->where('status', '!=', 'ignored')
+            ->count();
 
         return $count > 0 ? (string) $count : null;
     }

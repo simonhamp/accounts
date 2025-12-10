@@ -46,7 +46,14 @@ class StripeTransactionsTable
                     ->color(fn (string $state): string => match ($state) {
                         'pending_review' => 'warning',
                         'ready' => 'success',
+                        'ignored' => 'gray',
                         default => 'gray',
+                    })
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'pending_review' => 'Pending Review',
+                        'ready' => 'Ready',
+                        'ignored' => 'Ignored',
+                        default => ucfirst($state),
                     }),
                 IconColumn::make('invoiced')
                     ->label('Invoiced')
@@ -72,6 +79,7 @@ class StripeTransactionsTable
                     ->options([
                         'pending_review' => 'Pending Review',
                         'ready' => 'Ready',
+                        'ignored' => 'Ignored',
                     ]),
                 TernaryFilter::make('invoiced')
                     ->label('Invoiced')
@@ -97,7 +105,7 @@ class StripeTransactionsTable
                     ->icon('heroicon-o-document-text')
                     ->requiresConfirmation()
                     ->color('success')
-                    ->visible(fn ($record) => ! $record->isInvoiced())
+                    ->visible(fn ($record) => $record->canGenerateInvoice())
                     ->action(function ($record) {
                         $invoiceService = app(InvoiceService::class);
 
@@ -117,6 +125,36 @@ class StripeTransactionsTable
                                 ->send();
                         }
                     }),
+                Action::make('ignore')
+                    ->label('Ignore')
+                    ->icon('heroicon-o-eye-slash')
+                    ->color('gray')
+                    ->requiresConfirmation()
+                    ->modalHeading('Ignore Transaction')
+                    ->modalDescription('This transaction will be excluded from invoice generation.')
+                    ->visible(fn ($record) => ! $record->isIgnored() && ! $record->isInvoiced())
+                    ->action(function ($record) {
+                        $record->markAsIgnored();
+
+                        Notification::make()
+                            ->success()
+                            ->title('Transaction Ignored')
+                            ->send();
+                    }),
+                Action::make('unignore')
+                    ->label('Unignore')
+                    ->icon('heroicon-o-eye')
+                    ->color('warning')
+                    ->visible(fn ($record) => $record->isIgnored())
+                    ->action(function ($record) {
+                        $record->updateCompleteStatus();
+
+                        Notification::make()
+                            ->success()
+                            ->title('Transaction Restored')
+                            ->body('Status updated based on completeness.')
+                            ->send();
+                    }),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
@@ -124,6 +162,23 @@ class StripeTransactionsTable
                         ->label('Generate Invoices')
                         ->icon('heroicon-o-document-text')
                         ->requiresConfirmation()
+                        ->modalHeading('Generate Invoices')
+                        ->modalDescription(function (Collection $records) {
+                            $eligibleCount = $records->filter(fn ($r) => $r->canGenerateInvoice())->count();
+
+                            if ($eligibleCount === 0) {
+                                return 'None of the selected transactions can be invoiced. Transactions must be "Ready" and not already invoiced.';
+                            }
+
+                            $skippedCount = $records->count() - $eligibleCount;
+                            $message = "{$eligibleCount} transaction(s) will be invoiced.";
+
+                            if ($skippedCount > 0) {
+                                $message .= " {$skippedCount} transaction(s) will be skipped (not ready, ignored, or already invoiced).";
+                            }
+
+                            return $message;
+                        })
                         ->color('success')
                         ->action(function (Collection $records) {
                             $invoiceService = app(InvoiceService::class);
@@ -131,15 +186,10 @@ class StripeTransactionsTable
                             $failed = 0;
                             $errors = [];
 
-                            foreach ($records as $record) {
+                            $eligibleRecords = $records->filter(fn ($r) => $r->canGenerateInvoice());
+
+                            foreach ($eligibleRecords as $record) {
                                 try {
-                                    if (! $record->isComplete()) {
-                                        $failed++;
-                                        $errors[] = "Transaction {$record->stripe_transaction_id} is incomplete";
-
-                                        continue;
-                                    }
-
                                     $invoiceService->generateInvoiceForTransaction($record);
                                     $success++;
                                 } catch (\Exception $e) {
@@ -163,7 +213,42 @@ class StripeTransactionsTable
                                     ->body("{$failed} transaction(s) could not be invoiced: ".implode(', ', array_slice($errors, 0, 3)))
                                     ->send();
                             }
-                        }),
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('ignore')
+                        ->label('Ignore')
+                        ->icon('heroicon-o-eye-slash')
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalHeading('Ignore Transactions')
+                        ->modalDescription(function (Collection $records) {
+                            $eligibleCount = $records->filter(fn ($r) => ! $r->isIgnored() && ! $r->isInvoiced())->count();
+
+                            if ($eligibleCount === 0) {
+                                return 'None of the selected transactions can be ignored (already ignored or invoiced).';
+                            }
+
+                            return "{$eligibleCount} transaction(s) will be marked as ignored and excluded from invoice generation.";
+                        })
+                        ->action(function (Collection $records) {
+                            $count = 0;
+
+                            foreach ($records as $record) {
+                                if (! $record->isIgnored() && ! $record->isInvoiced()) {
+                                    $record->markAsIgnored();
+                                    $count++;
+                                }
+                            }
+
+                            if ($count > 0) {
+                                Notification::make()
+                                    ->success()
+                                    ->title('Transactions Ignored')
+                                    ->body("{$count} transaction(s) marked as ignored.")
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
                     DeleteBulkAction::make(),
                 ]),
             ])

@@ -66,8 +66,12 @@ class InvoiceService
             throw new \Exception('Cannot generate invoice: transaction has already been invoiced.');
         }
 
-        if (! $transaction->isComplete()) {
-            throw new \Exception('Cannot generate invoice: transaction is missing required details.');
+        if ($transaction->isIgnored()) {
+            throw new \Exception('Cannot generate invoice: transaction is marked as ignored.');
+        }
+
+        if (! $transaction->isReady()) {
+            throw new \Exception('Cannot generate invoice: transaction must be marked as "Ready".');
         }
 
         $transaction->load('stripeAccount.person');

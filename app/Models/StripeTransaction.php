@@ -47,6 +47,16 @@ class StripeTransaction extends Model
         return $this->invoiceItem()->exists();
     }
 
+    public function isIgnored(): bool
+    {
+        return $this->status === 'ignored';
+    }
+
+    public function isReady(): bool
+    {
+        return $this->status === 'ready';
+    }
+
     public function isComplete(): bool
     {
         return ! empty($this->customer_name)
@@ -55,10 +65,29 @@ class StripeTransaction extends Model
             && ! empty($this->currency);
     }
 
+    public function canGenerateInvoice(): bool
+    {
+        return $this->isReady() && ! $this->isInvoiced();
+    }
+
     public function updateCompleteStatus(): void
     {
+        if ($this->isIgnored()) {
+            return;
+        }
+
         $this->update([
             'status' => $this->isComplete() ? 'ready' : 'pending_review',
         ]);
+    }
+
+    public function markAsIgnored(): void
+    {
+        $this->update(['status' => 'ignored']);
+    }
+
+    public function markAsReady(): void
+    {
+        $this->update(['status' => 'ready']);
     }
 }

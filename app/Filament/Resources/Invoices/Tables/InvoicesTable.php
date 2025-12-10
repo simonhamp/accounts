@@ -11,11 +11,15 @@ use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use ZipArchive;
 
 class InvoicesTable
 {
@@ -186,6 +190,63 @@ class InvoicesTable
                                     ->body("{$failed} invoice(s) could not be finalized.")
                                     ->send();
                             }
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('download_pdfs')
+                        ->label('Download PDFs')
+                        ->icon('heroicon-o-arrow-down-tray')
+                        ->form([
+                            Radio::make('language')
+                                ->label('Language')
+                                ->options([
+                                    'es' => 'Spanish (Español)',
+                                    'en' => 'English',
+                                ])
+                                ->default('es')
+                                ->required(),
+                        ])
+                        ->action(function (Collection $records, array $data): StreamedResponse {
+                            $language = $data['language'];
+                            $invoicesWithPdfs = $records->filter(function ($record) use ($language) {
+                                $path = $language === 'en' ? $record->pdf_path_en : $record->pdf_path;
+
+                                return $record->isFinalized() && $path && Storage::exists($path);
+                            });
+
+                            if ($invoicesWithPdfs->isEmpty()) {
+                                Notification::make()
+                                    ->warning()
+                                    ->title('No PDFs available')
+                                    ->body('None of the selected invoices have generated PDFs.')
+                                    ->send();
+
+                                return response()->streamDownload(function () {}, 'empty.txt');
+                            }
+
+                            $zipFileName = 'invoices-'.($language === 'en' ? 'english' : 'spanish').'-'.now()->format('Y-m-d-His').'.zip';
+                            $tempPath = storage_path('app/temp/'.$zipFileName);
+
+                            if (! is_dir(storage_path('app/temp'))) {
+                                mkdir(storage_path('app/temp'), 0755, true);
+                            }
+
+                            $zip = new ZipArchive;
+                            $zip->open($tempPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+
+                            foreach ($invoicesWithPdfs as $invoice) {
+                                $pdfPath = $language === 'en' ? $invoice->pdf_path_en : $invoice->pdf_path;
+                                $fileName = $invoice->invoice_number.($language === 'en' ? '-en' : '').'.pdf';
+                                $zip->addFromString($fileName, Storage::get($pdfPath));
+                            }
+
+                            $zip->close();
+
+                            return response()->streamDownload(function () use ($tempPath) {
+                                readfile($tempPath);
+                                unlink($tempPath);
+                            }, $zipFileName, [
+                                'Content-Type' => 'application/zip',
+                            ]);
                         })
                         ->deselectRecordsAfterCompletion(),
                     DeleteBulkAction::make(),
