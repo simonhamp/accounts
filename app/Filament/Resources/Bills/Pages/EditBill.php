@@ -38,13 +38,23 @@ class EditBill extends EditRecord
                         return;
                     }
 
+                    $wasPaidNeedsReview = $this->record->status === \App\Enums\BillStatus::PaidNeedsReview;
+
                     $this->record->markAsReviewed();
 
-                    Notification::make()
-                        ->success()
-                        ->title('Bill marked as reviewed')
-                        ->body('The bill is now ready to be marked as paid.')
-                        ->send();
+                    if ($wasPaidNeedsReview) {
+                        Notification::make()
+                            ->success()
+                            ->title('Bill marked as paid')
+                            ->body('The bill has been reviewed and marked as paid.')
+                            ->send();
+                    } else {
+                        Notification::make()
+                            ->success()
+                            ->title('Bill marked as reviewed')
+                            ->body('The bill is now ready to be marked as paid.')
+                            ->send();
+                    }
                 }),
 
             Action::make('markPaid')

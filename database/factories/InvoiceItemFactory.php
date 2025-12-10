@@ -20,7 +20,7 @@ class InvoiceItemFactory extends Factory
      */
     public function definition(): array
     {
-        $quantity = fake()->numberBetween(1, 10);
+        $quantity = fake()->randomFloat(4, 0.5, 10);
         $unitPrice = fake()->numberBetween(500, 50000);
 
         return [
@@ -29,7 +29,7 @@ class InvoiceItemFactory extends Factory
             'description' => fake()->sentence(3),
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
-            'total' => $quantity * $unitPrice,
+            'total' => (int) round($quantity * $unitPrice),
         ];
     }
 }

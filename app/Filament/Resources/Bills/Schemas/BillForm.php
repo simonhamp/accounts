@@ -118,12 +118,13 @@ class BillForm
                                     ->numeric()
                                     ->default(1)
                                     ->required()
-                                    ->minValue(1)
+                                    ->minValue(0.0001)
+                                    ->step(0.0001)
                                     ->live(onBlur: true)
                                     ->afterStateUpdated(function ($state, callable $set, callable $get) {
                                         $unitPrice = (int) ($get('unit_price') ?? 0);
-                                        $quantity = (int) ($state ?? 0);
-                                        $set('total', $quantity * $unitPrice);
+                                        $quantity = (float) ($state ?? 0);
+                                        $set('total', (int) round($quantity * $unitPrice));
                                     }),
 
                                 TextInput::make('unit_price')
@@ -132,9 +133,9 @@ class BillForm
                                     ->suffix('cents')
                                     ->live(onBlur: true)
                                     ->afterStateUpdated(function ($state, callable $set, callable $get) {
-                                        $quantity = (int) ($get('quantity') ?? 0);
+                                        $quantity = (float) ($get('quantity') ?? 0);
                                         $unitPrice = (int) ($state ?? 0);
-                                        $set('total', $quantity * $unitPrice);
+                                        $set('total', (int) round($quantity * $unitPrice));
                                     }),
 
                                 TextInput::make('total')

@@ -25,7 +25,7 @@ class BillItem extends Model
     {
         return [
             'unit' => InvoiceItemUnit::class,
-            'quantity' => 'integer',
+            'quantity' => 'decimal:4',
             'unit_price' => 'integer',
             'total' => 'integer',
         ];

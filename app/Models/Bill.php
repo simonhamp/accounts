@@ -109,7 +109,11 @@ class Bill extends Model
 
     public function markAsReviewed(): void
     {
-        $this->update(['status' => BillStatus::Reviewed]);
+        if ($this->status === BillStatus::PaidNeedsReview) {
+            $this->update(['status' => BillStatus::Paid]);
+        } else {
+            $this->update(['status' => BillStatus::Reviewed]);
+        }
     }
 
     public function markAsPaid(): void

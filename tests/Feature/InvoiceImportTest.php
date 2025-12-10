@@ -237,13 +237,13 @@ describe('Process Invoice Import Job', function () {
 
         $firstItem = $invoice->items->first();
         expect($firstItem->description)->toBe('Consulting Services');
-        expect($firstItem->quantity)->toBe(2);
+        expect($firstItem->quantity)->toBe('2.0000');
         expect($firstItem->unit_price)->toBe(10000);
         expect($firstItem->total)->toBe(20000);
 
         $secondItem = $invoice->items->last();
         expect($secondItem->description)->toBe('Support Fee');
-        expect($secondItem->quantity)->toBe(1);
+        expect($secondItem->quantity)->toBe('1.0000');
         expect($secondItem->total)->toBe(5000);
     });
 });
@@ -285,7 +285,7 @@ describe('Invoice Line Items', function () {
 
         expect($invoice->items()->count())->toBe(1);
         expect($invoice->items->first()->description)->toBe('Test Service');
-        expect($invoice->items->first()->quantity)->toBe(2);
+        expect($invoice->items->first()->quantity)->toBe('2.0000');
         expect($invoice->items->first()->unit_price)->toBe(5000);
         expect($invoice->items->first()->total)->toBe(10000);
     });
@@ -312,7 +312,7 @@ describe('Invoice Line Items', function () {
 
         $item->refresh();
         expect($item->description)->toBe('Updated Description');
-        expect($item->quantity)->toBe(3);
+        expect($item->quantity)->toBe('3.0000');
         expect($item->total)->toBe(6000);
     });
 

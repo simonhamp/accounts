@@ -18,7 +18,7 @@ class BillItemFactory extends Factory
      */
     public function definition(): array
     {
-        $quantity = fake()->numberBetween(1, 10);
+        $quantity = fake()->randomFloat(4, 0.5, 10);
         $unitPrice = fake()->numberBetween(1000, 50000);
 
         return [
@@ -27,7 +27,7 @@ class BillItemFactory extends Factory
             'unit' => fake()->randomElement(InvoiceItemUnit::cases()),
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
-            'total' => $quantity * $unitPrice,
+            'total' => (int) round($quantity * $unitPrice),
         ];
     }
 }

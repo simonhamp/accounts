@@ -51,6 +51,14 @@ describe('Bill Status', function () {
         expect($bill->fresh()->status)->toBe(BillStatus::Reviewed);
     });
 
+    it('marks paid needs review bill as paid when reviewed', function () {
+        $bill = Bill::factory()->paidNeedsReview()->create();
+
+        $bill->markAsReviewed();
+
+        expect($bill->fresh()->status)->toBe(BillStatus::Paid);
+    });
+
     it('can mark bill as paid', function () {
         $bill = Bill::factory()->reviewed()->create();
 
@@ -294,7 +302,7 @@ describe('Process Bill Import Job', function () {
 
         $firstItem = $bill->items->first();
         expect($firstItem->description)->toBe('Office Supplies');
-        expect($firstItem->quantity)->toBe(2);
+        expect($firstItem->quantity)->toBe('2.0000');
         expect($firstItem->unit_price)->toBe(10000);
         expect($firstItem->total)->toBe(20000);
     });
@@ -398,7 +406,7 @@ describe('Bill Line Items', function () {
 
         expect($bill->items()->count())->toBe(1);
         expect($bill->items->first()->description)->toBe('Test Item');
-        expect($bill->items->first()->quantity)->toBe(2);
+        expect($bill->items->first()->quantity)->toBe('2.0000');
         expect($bill->items->first()->unit_price)->toBe(5000);
         expect($bill->items->first()->total)->toBe(10000);
     });
