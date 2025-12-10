@@ -45,6 +45,13 @@
                         <x-filament::section class="mt-6">
                             <x-slot name="heading">Analysis Results</x-slot>
 
+                            @if($this->originalFilename)
+                                <p class="mb-4 text-sm text-gray-600 dark:text-gray-400">
+                                    <span class="font-medium">Source file:</span>
+                                    <code class="ml-1 rounded bg-gray-100 px-2 py-0.5 dark:bg-gray-800">{{ $this->originalFilename }}</code>
+                                </p>
+                            @endif
+
                             <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4">
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Platform Detected</dt>
@@ -66,11 +73,16 @@
                                 </div>
                             </dl>
 
-                            @if($this->csvPreviewData['source_suggestion'])
-                                <p class="mt-4 text-sm text-gray-600 dark:text-gray-400">
-                                    <span class="font-medium">Suggested Income Source:</span>
-                                    {{ $this->csvPreviewData['source_suggestion'] }}
-                                </p>
+                            @if($this->suggestedSourceName)
+                                <div class="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
+                                    <p class="text-sm text-blue-800 dark:text-blue-200">
+                                        <span class="font-medium">Suggested Income Source:</span>
+                                        {{ $this->suggestedSourceName }}
+                                        @if(!$this->csvData['income_source_id'])
+                                            <span class="ml-2 text-blue-600 dark:text-blue-400">(will be created if not selected above)</span>
+                                        @endif
+                                    </p>
+                                </div>
                             @endif
 
                             @if(count($this->csvPreviewData['payouts']) > 0)

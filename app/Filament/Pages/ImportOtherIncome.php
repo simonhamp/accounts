@@ -52,6 +52,8 @@ class ImportOtherIncome extends Page implements HasForms
 
     public ?string $originalFilename = null;
 
+    public ?string $suggestedSourceName = null;
+
     public function mount(): void
     {
         $this->pdfForm->fill();
@@ -115,10 +117,25 @@ class ImportOtherIncome extends Page implements HasForms
                             ->searchable()
                             ->helperText('Select the person this income belongs to'),
                         Select::make('income_source_id')
-                            ->label('Income Source (Optional)')
+                            ->label('Income Source')
                             ->options(IncomeSource::active()->pluck('name', 'id'))
                             ->searchable()
-                            ->helperText('Pre-select an income source, or let AI detect it'),
+                            ->createOptionForm([
+                                \Filament\Forms\Components\TextInput::make('name')
+                                    ->label('Source Name')
+                                    ->required()
+                                    ->maxLength(255)
+                                    ->helperText('Enter a name for this new income source'),
+                            ])
+                            ->createOptionUsing(function (array $data): int {
+                                return IncomeSource::create([
+                                    'name' => $data['name'],
+                                    'is_active' => true,
+                                ])->id;
+                            })
+                            ->helperText(fn () => $this->suggestedSourceName
+                                ? "Suggested: {$this->suggestedSourceName} (based on filename)"
+                                : 'Select an existing source, or type to create a new one'),
                         FileUpload::make('csv')
                             ->label('Payout CSV')
                             ->acceptedFileTypes(['text/csv', 'application/csv', 'text/plain'])
@@ -228,6 +245,22 @@ class ImportOtherIncome extends Page implements HasForms
                 'raw_extraction' => $extracted,
             ];
 
+            // Set the suggested source name from AI analysis or filename
+            $this->suggestedSourceName = $extracted['income_source_suggestion']
+                ?? $this->guessSourceFromFilename($this->originalFilename);
+
+            // If no source is manually selected, try to find a matching existing source
+            if (empty($data['income_source_id']) && $this->suggestedSourceName) {
+                $matchingSource = IncomeSource::query()
+                    ->where('name', 'like', '%'.$this->suggestedSourceName.'%')
+                    ->orWhere('name', 'like', '%'.str_replace(['-', '_', ' '], '%', $this->suggestedSourceName).'%')
+                    ->first();
+
+                if ($matchingSource) {
+                    $this->csvData['income_source_id'] = $matchingSource->id;
+                }
+            }
+
             Notification::make()
                 ->success()
                 ->title('CSV analyzed successfully')
@@ -247,6 +280,24 @@ class ImportOtherIncome extends Page implements HasForms
         }
     }
 
+    protected function guessSourceFromFilename(string $filename): ?string
+    {
+        // Remove extension and common suffixes
+        $name = pathinfo($filename, PATHINFO_FILENAME);
+        $name = preg_replace('/[-_]?(payouts?|transactions?|export|report|data|\d{4}[-_]?\d{2}[-_]?\d{2}|\d+)$/i', '', $name);
+        $name = trim($name, '-_ ');
+
+        if (empty($name)) {
+            return null;
+        }
+
+        // Convert to title case and clean up
+        $name = str_replace(['-', '_'], ' ', $name);
+        $name = ucwords(strtolower($name));
+
+        return $name ?: null;
+    }
+
     public function importCsvRecords(): void
     {
         if (! $this->csvPreviewData || empty($this->csvPreviewData['payouts'])) {
@@ -262,9 +313,10 @@ class ImportOtherIncome extends Page implements HasForms
         $personId = $data['person_id'];
         $incomeSourceId = $data['income_source_id'];
 
-        if (! $incomeSourceId && $this->csvPreviewData['source_suggestion']) {
+        // If no source selected, use the suggested source name to create one
+        if (! $incomeSourceId && $this->suggestedSourceName) {
             $source = IncomeSource::firstOrCreate(
-                ['name' => $this->csvPreviewData['source_suggestion']],
+                ['name' => $this->suggestedSourceName],
                 ['is_active' => true]
             );
             $incomeSourceId = $source->id;
@@ -328,6 +380,7 @@ class ImportOtherIncome extends Page implements HasForms
         $this->csvPreviewData = null;
         $this->csvPath = null;
         $this->originalFilename = null;
+        $this->suggestedSourceName = null;
         $this->csvForm->fill();
     }
 

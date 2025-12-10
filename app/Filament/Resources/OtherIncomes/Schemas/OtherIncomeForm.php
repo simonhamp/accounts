@@ -55,10 +55,8 @@ class OtherIncomeForm
                             ->default(now()),
                         TextInput::make('description')
                             ->required()
-                            ->maxLength(255)
-                            ->columnSpanFull(),
-                    ])
-                    ->columns(3),
+                            ->maxLength(255),
+                    ]),
 
                 Section::make('Amount')
                     ->components([
@@ -91,8 +89,7 @@ class OtherIncomeForm
                             ->label('Reference')
                             ->helperText('Transaction ID, payout ID, etc.')
                             ->maxLength(255),
-                    ])
-                    ->columns(3),
+                    ]),
 
                 Section::make('Payment')
                     ->description('Track the actual payment received for this income.')
@@ -127,7 +124,6 @@ class OtherIncomeForm
                             ->label('Date Received')
                             ->placeholder('Select date'),
                     ])
-                    ->columns(4)
                     ->collapsible(),
 
                 Section::make('Source Document')
@@ -140,8 +136,7 @@ class OtherIncomeForm
                             ->acceptedFileTypes(['application/pdf'])
                             ->maxSize(10240)
                             ->downloadable()
-                            ->openable()
-                            ->columnSpanFull(),
+                            ->openable(),
                         TextInput::make('source_filename')
                             ->label('Source Filename')
                             ->helperText('If imported from CSV, the original filename.')
@@ -169,8 +164,7 @@ class OtherIncomeForm
                 Section::make('Additional Information')
                     ->components([
                         Textarea::make('notes')
-                            ->rows(3)
-                            ->columnSpanFull(),
+                            ->rows(3),
                         Fieldset::make('Extracted Data')
                             ->components([
                                 Textarea::make('extracted_data_display')
@@ -181,8 +175,7 @@ class OtherIncomeForm
                                         if ($record && $record->extracted_data) {
                                             $set('extracted_data_display', json_encode($record->extracted_data, JSON_PRETTY_PRINT));
                                         }
-                                    })
-                                    ->columnSpanFull(),
+                                    }),
                             ])
                             ->visible(fn ($record) => $record && ! empty($record->extracted_data)),
                     ])
