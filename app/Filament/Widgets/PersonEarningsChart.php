@@ -3,6 +3,8 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Invoice;
+use App\Models\OtherIncome;
+use App\Models\Person;
 use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Illuminate\Support\Facades\DB;
@@ -13,7 +15,7 @@ class PersonEarningsChart extends ChartWidget
 
     protected ?string $heading = 'Earnings by Person';
 
-    protected static ?int $sort = 3;
+    protected static ?int $sort = 4;
 
     protected ?string $pollingInterval = null;
 
@@ -21,7 +23,8 @@ class PersonEarningsChart extends ChartWidget
     {
         $year = $this->pageFilters['year'] ?? date('Y');
 
-        $earnings = Invoice::query()
+        // Get invoice earnings
+        $invoiceEarnings = Invoice::query()
             ->select(
                 'person_id',
                 'currency',
@@ -30,11 +33,30 @@ class PersonEarningsChart extends ChartWidget
             ->whereYear('invoice_date', $year)
             ->whereNotNull('person_id')
             ->groupBy('person_id', 'currency')
-            ->with('person:id,name')
             ->get();
 
-        // Get unique persons and currencies
-        $persons = $earnings->pluck('person.name', 'person_id')->unique()->filter()->toArray();
+        // Get other income earnings
+        $otherIncomeEarnings = OtherIncome::query()
+            ->select(
+                'person_id',
+                'currency',
+                DB::raw('SUM(amount) as total')
+            )
+            ->whereYear('income_date', $year)
+            ->whereNotNull('person_id')
+            ->groupBy('person_id', 'currency')
+            ->get();
+
+        // Combine both earnings collections
+        $earnings = $invoiceEarnings->concat($otherIncomeEarnings);
+
+        // Get all unique person IDs from both sources
+        $personIds = $earnings->pluck('person_id')->unique()->filter()->values();
+
+        // Load persons
+        $personsMap = Person::whereIn('id', $personIds)->pluck('name', 'id')->toArray();
+
+        // Get unique currencies
         $currencies = $earnings->pluck('currency')->unique()->sort()->values()->toArray();
 
         // Color palette for currencies
@@ -49,6 +71,20 @@ class PersonEarningsChart extends ChartWidget
             ['bg' => 'rgba(20, 184, 166, 0.5)', 'border' => 'rgb(20, 184, 166)'],
         ];
 
+        // Aggregate totals by person and currency (sum invoices + other income)
+        $aggregated = [];
+        foreach ($earnings as $earning) {
+            $key = $earning->person_id.'-'.$earning->currency;
+            if (! isset($aggregated[$key])) {
+                $aggregated[$key] = [
+                    'person_id' => $earning->person_id,
+                    'currency' => $earning->currency,
+                    'total' => 0,
+                ];
+            }
+            $aggregated[$key]['total'] += $earning->total;
+        }
+
         // Build datasets - one per currency
         $datasets = [];
         $colorIndex = 0;
@@ -56,9 +92,9 @@ class PersonEarningsChart extends ChartWidget
         foreach ($currencies as $currency) {
             $data = [];
 
-            foreach (array_keys($persons) as $personId) {
-                $earning = $earnings->first(fn ($e) => $e->person_id === $personId && $e->currency === $currency);
-                $data[] = $earning ? $earning->total / 100 : 0;
+            foreach (array_keys($personsMap) as $personId) {
+                $key = $personId.'-'.$currency;
+                $data[] = isset($aggregated[$key]) ? $aggregated[$key]['total'] / 100 : 0;
             }
 
             $colors = $colorPalette[$currency] ?? ($defaultColors[$colorIndex++ % count($defaultColors)] ?? $defaultColors[0]);
@@ -73,7 +109,7 @@ class PersonEarningsChart extends ChartWidget
 
         return [
             'datasets' => $datasets,
-            'labels' => array_values($persons),
+            'labels' => array_values($personsMap),
         ];
     }
 

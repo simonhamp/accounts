@@ -67,6 +67,11 @@ class Bill extends Model
         ]);
     }
 
+    public function scopeReadyToPay(Builder $query): Builder
+    {
+        return $query->where('status', BillStatus::Reviewed);
+    }
+
     public function scopePaid(Builder $query): Builder
     {
         return $query->where('status', BillStatus::Paid);

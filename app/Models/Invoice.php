@@ -18,6 +18,7 @@ class Invoice extends Model
         'person_id',
         'customer_id',
         'parent_invoice_id',
+        'bank_account_id',
         'invoice_number',
         'invoice_date',
         'due_date',
@@ -99,6 +100,11 @@ class Invoice extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function bankAccount(): BelongsTo
+    {
+        return $this->belongsTo(BankAccount::class);
     }
 
     public function parentInvoice(): BelongsTo
@@ -193,5 +199,10 @@ class Invoice extends Model
             'status' => InvoiceStatus::Failed,
             'error_message' => $message,
         ]);
+    }
+
+    public function hasPaymentDetails(): bool
+    {
+        return $this->bank_account_id !== null;
     }
 }

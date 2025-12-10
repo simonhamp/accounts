@@ -167,7 +167,7 @@ class InvoiceService
 
     protected function generateAndStorePdf(Invoice $invoice): void
     {
-        $invoice->load(['person', 'items.stripeTransaction']);
+        $invoice->load(['person', 'items.stripeTransaction', 'bankAccount']);
 
         $directory = "invoices/{$invoice->person->invoice_prefix}/{$invoice->period_year}";
         Storage::makeDirectory($directory);

@@ -2,6 +2,7 @@
 
 use App\Enums\InvoiceStatus;
 use App\Jobs\ProcessInvoiceImport;
+use App\Models\BankAccount;
 use App\Models\Invoice;
 use App\Models\Person;
 use App\Services\InvoiceExtractionService;
@@ -471,5 +472,43 @@ describe('Dual Language PDF Generation', function () {
         $this->actingAs($user)
             ->get(route('invoices.download-pdf', ['invoice' => $invoice, 'language' => 'en']))
             ->assertNotFound();
+    });
+});
+
+describe('Invoice Bank Account Relationship', function () {
+    it('can associate a bank account with an invoice', function () {
+        $bankAccount = BankAccount::factory()->create([
+            'name' => 'Business Account',
+        ]);
+
+        $invoice = Invoice::factory()->create([
+            'bank_account_id' => $bankAccount->id,
+        ]);
+
+        expect($invoice->bankAccount)->not->toBeNull();
+        expect($invoice->bankAccount->name)->toBe('Business Account');
+    });
+
+    it('can have no bank account', function () {
+        $invoice = Invoice::factory()->create([
+            'bank_account_id' => null,
+        ]);
+
+        expect($invoice->bankAccount)->toBeNull();
+    });
+
+    it('can check if invoice has payment details', function () {
+        $bankAccount = BankAccount::factory()->create();
+
+        $invoiceWithPaymentDetails = Invoice::factory()->create([
+            'bank_account_id' => $bankAccount->id,
+        ]);
+
+        $invoiceWithoutPaymentDetails = Invoice::factory()->create([
+            'bank_account_id' => null,
+        ]);
+
+        expect($invoiceWithPaymentDetails->hasPaymentDetails())->toBeTrue();
+        expect($invoiceWithoutPaymentDetails->hasPaymentDetails())->toBeFalse();
     });
 });

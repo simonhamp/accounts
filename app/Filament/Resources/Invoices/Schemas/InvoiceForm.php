@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Invoices\Schemas;
 
 use App\Enums\InvoiceItemUnit;
 use App\Enums\InvoiceStatus;
+use App\Models\BankAccount;
 use App\Models\Customer;
 use App\Models\Invoice;
 use Filament\Actions\Action;
@@ -193,6 +194,13 @@ class InvoiceForm
                                 return number_format($total / 100, 2).' '.$currency;
                             })
                             ->helperText('Automatically calculated from line items'),
+
+                        Select::make('bank_account_id')
+                            ->label('Payment Account')
+                            ->options(BankAccount::active()->pluck('name', 'id'))
+                            ->searchable()
+                            ->placeholder('Select bank account for payment page')
+                            ->helperText('Enables a payment page with bank details for the customer'),
 
                         Select::make('parent_invoice_id')
                             ->label('Original Invoice (for Credit Note)')

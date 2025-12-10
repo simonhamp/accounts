@@ -5,6 +5,7 @@ namespace App\Filament\Resources\People;
 use App\Filament\Resources\People\Pages\CreatePerson;
 use App\Filament\Resources\People\Pages\EditPerson;
 use App\Filament\Resources\People\Pages\ListPeople;
+use App\Filament\Resources\People\RelationManagers\OtherIncomesRelationManager;
 use App\Filament\Resources\People\Schemas\PersonForm;
 use App\Filament\Resources\People\Tables\PeopleTable;
 use App\Models\Person;
@@ -38,7 +39,7 @@ class PersonResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            OtherIncomesRelationManager::class,
         ];
     }
 

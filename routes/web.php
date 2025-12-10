@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BillController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\OtherIncomeController;
 use App\Livewire\Settings\Appearance;
 use App\Livewire\Settings\Password;
 use App\Livewire\Settings\Profile;
@@ -42,4 +43,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('bills/{bill}/original-pdf', [BillController::class, 'showOriginalPdf'])
         ->name('bills.original-pdf');
+
+    Route::get('other-incomes/{otherIncome}/original-pdf', [OtherIncomeController::class, 'showOriginalPdf'])
+        ->name('other-incomes.original-pdf');
 });
