@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Invoices\Schemas;
 
 use App\Enums\InvoiceItemUnit;
 use App\Enums\InvoiceStatus;
+use App\Models\Invoice;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Placeholder;
@@ -111,11 +112,22 @@ class InvoiceForm
                         TextInput::make('total_amount')
                             ->numeric()
                             ->suffix('cents')
-                            ->helperText('Amount in cents (e.g., 10000 = 100.00)'),
+                            ->helperText('Amount in cents (e.g., 10000 = 100.00). Negative amounts create a Credit Note.')
+                            ->live(onBlur: true),
 
                         TextInput::make('currency')
                             ->default('EUR')
                             ->maxLength(3),
+
+                        Select::make('parent_invoice_id')
+                            ->label('Original Invoice (for Credit Note)')
+                            ->relationship('parentInvoice', 'invoice_number')
+                            ->getOptionLabelFromRecordUsing(fn (Invoice $record) => "{$record->invoice_number} - {$record->customer_name}")
+                            ->searchable(['invoice_number', 'customer_name'])
+                            ->preload()
+                            ->visible(fn ($get) => ($get('total_amount') ?? 0) < 0)
+                            ->helperText('Select the invoice this credit note applies to')
+                            ->columnSpanFull(),
                     ])
                     ->columns(2),
 

@@ -37,10 +37,10 @@ class StripeImportService
     protected function buildDateFilter(?int $year, ?int $month): array
     {
         if ($year === null) {
-            return [];
-        }
-
-        if ($month !== null) {
+            // Default to last 7 days for scheduled syncs
+            $startDate = now()->subDays(7)->startOfDay();
+            $endDate = now()->endOfDay();
+        } elseif ($month !== null) {
             // Specific month and year
             $startDate = Carbon::create($year, $month, 1)->startOfMonth();
             $endDate = $startDate->copy()->endOfMonth();

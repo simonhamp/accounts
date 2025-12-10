@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Invoices\Pages;
 
 use App\Enums\InvoiceStatus;
 use App\Filament\Resources\Invoices\InvoiceResource;
+use App\Filament\Resources\StripeTransactions\StripeTransactionResource;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -120,6 +121,15 @@ class EditInvoice extends EditRecord
                 ->color('gray')
                 ->visible(fn () => $this->record->isFinalized() && $this->record->pdf_path_en)
                 ->url(fn () => route('invoices.download-pdf', ['invoice' => $this->record, 'language' => 'en'])),
+
+            Action::make('viewTransaction')
+                ->label('View Transaction')
+                ->icon('heroicon-o-banknotes')
+                ->color('gray')
+                ->visible(fn () => $this->record->hasStripeTransactions())
+                ->url(fn () => StripeTransactionResource::getUrl('edit', [
+                    'record' => $this->record->items()->whereNotNull('stripe_transaction_id')->first()?->stripe_transaction_id,
+                ])),
 
             DeleteAction::make(),
         ];

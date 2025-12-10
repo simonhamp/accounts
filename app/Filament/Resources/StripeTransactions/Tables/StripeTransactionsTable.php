@@ -42,9 +42,16 @@ class StripeTransactionsTable
                 TextColumn::make('customer_email')
                     ->searchable(),
                 TextColumn::make('status')
-                    ->searchable(),
-                IconColumn::make('is_complete')
-                    ->boolean(),
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        'pending_review' => 'warning',
+                        'ready' => 'success',
+                        default => 'gray',
+                    }),
+                IconColumn::make('invoiced')
+                    ->label('Invoiced')
+                    ->boolean()
+                    ->getStateUsing(fn ($record) => $record->isInvoiced()),
                 TextColumn::make('transaction_date')
                     ->dateTime()
                     ->sortable(),
@@ -61,21 +68,20 @@ class StripeTransactionsTable
                 SelectFilter::make('stripe_account_id')
                     ->label('Account')
                     ->options(fn () => StripeAccount::pluck('account_name', 'id')->toArray()),
-                TernaryFilter::make('is_complete')
-                    ->label('Complete')
-                    ->placeholder('All transactions')
-                    ->trueLabel('Complete only')
-                    ->falseLabel('Incomplete only')
-                    ->queries(
-                        true: fn (Builder $query) => $query->where('is_complete', true),
-                        false: fn (Builder $query) => $query->where('is_complete', false),
-                    ),
                 SelectFilter::make('status')
                     ->options([
                         'pending_review' => 'Pending Review',
                         'ready' => 'Ready',
-                        'invoiced' => 'Invoiced',
                     ]),
+                TernaryFilter::make('invoiced')
+                    ->label('Invoiced')
+                    ->placeholder('All transactions')
+                    ->trueLabel('Invoiced only')
+                    ->falseLabel('Not invoiced only')
+                    ->queries(
+                        true: fn (Builder $query) => $query->whereHas('invoiceItem'),
+                        false: fn (Builder $query) => $query->whereDoesntHave('invoiceItem'),
+                    ),
                 SelectFilter::make('type')
                     ->options([
                         'payment' => 'Payment',
@@ -91,6 +97,7 @@ class StripeTransactionsTable
                     ->icon('heroicon-o-document-text')
                     ->requiresConfirmation()
                     ->color('success')
+                    ->visible(fn ($record) => ! $record->isInvoiced())
                     ->action(function ($record) {
                         $invoiceService = app(InvoiceService::class);
 
@@ -126,7 +133,7 @@ class StripeTransactionsTable
 
                             foreach ($records as $record) {
                                 try {
-                                    if (! $record->is_complete) {
+                                    if (! $record->isComplete()) {
                                         $failed++;
                                         $errors[] = "Transaction {$record->stripe_transaction_id} is incomplete";
 
@@ -159,6 +166,7 @@ class StripeTransactionsTable
                         }),
                     DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->defaultSort('transaction_date', 'desc');
     }
 }

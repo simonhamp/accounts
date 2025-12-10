@@ -20,6 +20,8 @@ class InvoiceResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentText;
 
+    protected static ?int $navigationSort = 2;
+
     public static function getNavigationBadge(): ?string
     {
         $pendingCount = Invoice::pending()->count();

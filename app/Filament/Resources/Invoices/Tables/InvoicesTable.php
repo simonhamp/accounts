@@ -3,8 +3,10 @@
 namespace App\Filament\Resources\Invoices\Tables;
 
 use App\Enums\InvoiceStatus;
+use App\Filament\Resources\StripeTransactions\StripeTransactionResource;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -75,48 +77,57 @@ class InvoicesTable
                     )),
             ])
             ->recordActions([
-                EditAction::make(),
-                Action::make('finalize')
-                    ->label('Finalize')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->modalHeading('Finalize Invoice')
-                    ->modalDescription('This will generate the invoice number and PDF. This action cannot be undone.')
-                    ->visible(fn ($record) => $record->canBeFinalized())
-                    ->action(function ($record) {
-                        try {
+                ActionGroup::make([
+                    EditAction::make(),
+                    Action::make('viewTransaction')
+                        ->label('View Transaction')
+                        ->icon('heroicon-o-banknotes')
+                        ->visible(fn ($record) => $record->hasStripeTransactions())
+                        ->url(fn ($record) => StripeTransactionResource::getUrl('edit', [
+                            'record' => $record->items()->whereNotNull('stripe_transaction_id')->first()?->stripe_transaction_id,
+                        ])),
+                    Action::make('finalize')
+                        ->label('Finalize')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('Finalize Invoice')
+                        ->modalDescription('This will generate the invoice number and PDF. This action cannot be undone.')
+                        ->visible(fn ($record) => $record->canBeFinalized())
+                        ->action(function ($record) {
+                            try {
+                                $invoiceService = app(InvoiceService::class);
+                                $invoiceService->finalizeImportedInvoice($record);
+
+                                Notification::make()
+                                    ->success()
+                                    ->title('Invoice finalized')
+                                    ->body("Invoice {$record->invoice_number} has been finalized.")
+                                    ->send();
+                            } catch (\Exception $e) {
+                                Notification::make()
+                                    ->danger()
+                                    ->title('Failed to finalize invoice')
+                                    ->body($e->getMessage())
+                                    ->send();
+                            }
+                        }),
+                    Action::make('regenerate')
+                        ->label('Regenerate PDF')
+                        ->icon('heroicon-o-arrow-path')
+                        ->requiresConfirmation()
+                        ->visible(fn ($record) => $record->isFinalized())
+                        ->action(function ($record) {
                             $invoiceService = app(InvoiceService::class);
-                            $invoiceService->finalizeImportedInvoice($record);
+                            $invoiceService->regeneratePdf($record);
 
                             Notification::make()
                                 ->success()
-                                ->title('Invoice finalized')
-                                ->body("Invoice {$record->invoice_number} has been finalized.")
+                                ->title('Invoice regenerated')
+                                ->body("Invoice {$record->invoice_number} PDF has been regenerated.")
                                 ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->danger()
-                                ->title('Failed to finalize invoice')
-                                ->body($e->getMessage())
-                                ->send();
-                        }
-                    }),
-                Action::make('regenerate')
-                    ->label('Regenerate')
-                    ->icon('heroicon-o-arrow-path')
-                    ->requiresConfirmation()
-                    ->visible(fn ($record) => $record->isFinalized())
-                    ->action(function ($record) {
-                        $invoiceService = app(InvoiceService::class);
-                        $invoiceService->regeneratePdf($record);
-
-                        Notification::make()
-                            ->success()
-                            ->title('Invoice regenerated')
-                            ->body("Invoice {$record->invoice_number} PDF has been regenerated.")
-                            ->send();
-                    }),
+                        }),
+                ]),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

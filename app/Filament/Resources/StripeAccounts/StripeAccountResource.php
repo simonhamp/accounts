@@ -20,6 +20,11 @@ class StripeAccountResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCreditCard;
 
+    public static function getNavigationGroup(): ?string
+    {
+        return 'Settings';
+    }
+
     public static function form(Schema $schema): Schema
     {
         return StripeAccountForm::configure($schema);

@@ -16,7 +16,7 @@ class InvoiceService
     {
         $transactions = $this->getTransactionsForPeriod($person, $year, $month);
 
-        $incomplete = $transactions->where('is_complete', false);
+        $incomplete = $transactions->filter(fn ($t) => ! $t->isComplete());
 
         return [
             'valid' => $incomplete->isEmpty(),
@@ -62,7 +62,11 @@ class InvoiceService
 
     public function generateInvoiceForTransaction(StripeTransaction $transaction): Invoice
     {
-        if (! $transaction->is_complete) {
+        if ($transaction->isInvoiced()) {
+            throw new \Exception('Cannot generate invoice: transaction has already been invoiced.');
+        }
+
+        if (! $transaction->isComplete()) {
             throw new \Exception('Cannot generate invoice: transaction is missing required details.');
         }
 
@@ -112,8 +116,6 @@ class InvoiceService
                     'unit_price' => $transaction->amount,
                     'total' => $itemTotal,
                 ]);
-
-                $transaction->update(['status' => 'invoiced']);
             }
 
             $invoice->update(['total_amount' => $totalAmount]);
@@ -191,7 +193,7 @@ class InvoiceService
             })
             ->whereYear('transaction_date', $year)
             ->whereMonth('transaction_date', $month)
-            ->where('status', '!=', 'invoiced')
+            ->whereDoesntHave('invoiceItem')
             ->get();
     }
 }

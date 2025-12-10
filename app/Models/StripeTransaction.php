@@ -20,7 +20,6 @@ class StripeTransaction extends Model
         'description',
         'metadata',
         'status',
-        'is_complete',
         'transaction_date',
     ];
 
@@ -29,7 +28,6 @@ class StripeTransaction extends Model
         return [
             'amount' => 'integer',
             'metadata' => 'array',
-            'is_complete' => 'boolean',
             'transaction_date' => 'datetime',
         ];
     }
@@ -44,7 +42,12 @@ class StripeTransaction extends Model
         return $this->hasOne(InvoiceItem::class);
     }
 
-    public function checkIsComplete(): bool
+    public function isInvoiced(): bool
+    {
+        return $this->invoiceItem()->exists();
+    }
+
+    public function isComplete(): bool
     {
         return ! empty($this->customer_name)
             && ! empty($this->description)
@@ -54,11 +57,8 @@ class StripeTransaction extends Model
 
     public function updateCompleteStatus(): void
     {
-        $isComplete = $this->checkIsComplete();
-
         $this->update([
-            'is_complete' => $isComplete,
-            'status' => $isComplete ? 'ready' : 'pending_review',
+            'status' => $this->isComplete() ? 'ready' : 'pending_review',
         ]);
     }
 }

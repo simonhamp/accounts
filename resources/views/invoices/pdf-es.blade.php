@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-    <title>Factura {{ $invoice->invoice_number }}</title>
+    <title>{{ $invoice->isCreditNote() ? 'Nota de Crédito' : 'Factura' }} {{ $invoice->invoice_number }}</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -114,9 +114,12 @@
 </head>
 <body>
     <div class="header">
-        <h1>FACTURA</h1>
+        <h1>{{ $invoice->isCreditNote() ? 'NOTA DE CRÉDITO' : 'FACTURA' }}</h1>
         <p><strong>Nº:</strong> {{ $invoice->invoice_number }}</p>
         <p><strong>Fecha:</strong> {{ $invoice->invoice_date->format('d/m/Y') }}</p>
+        @if($invoice->isCreditNote() && $invoice->parentInvoice)
+        <p><strong>Referencia Factura Original:</strong> {{ $invoice->parentInvoice->invoice_number }}</p>
+        @endif
     </div>
 
     <div class="section">
@@ -144,7 +147,7 @@
     </div>
 
     <div class="section">
-        <div class="section-title">DETALLES DE LA FACTURA</div>
+        <div class="section-title">{{ $invoice->isCreditNote() ? 'DETALLES DE LA NOTA DE CRÉDITO' : 'DETALLES DE LA FACTURA' }}</div>
         <table>
             <thead>
                 <tr>
@@ -200,7 +203,7 @@
     @endif
 
     <div class="footer">
-        <p>Factura generada el {{ $invoice->generated_at?->format('d/m/Y H:i') ?? now()->format('d/m/Y H:i') }}</p>
+        <p>{{ $invoice->isCreditNote() ? 'Nota de crédito generada' : 'Factura generada' }} el {{ $invoice->generated_at?->format('d/m/Y H:i') ?? now()->format('d/m/Y H:i') }}</p>
     </div>
 </body>
 </html>

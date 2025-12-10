@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class Invoice extends Model
 {
@@ -15,6 +16,7 @@ class Invoice extends Model
 
     protected $fillable = [
         'person_id',
+        'parent_invoice_id',
         'invoice_number',
         'invoice_date',
         'period_month',
@@ -51,9 +53,41 @@ class Invoice extends Model
         return $this->belongsTo(Person::class);
     }
 
+    public function parentInvoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class, 'parent_invoice_id');
+    }
+
+    public function creditNotes(): HasMany
+    {
+        return $this->hasMany(Invoice::class, 'parent_invoice_id');
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class);
+    }
+
+    public function isCreditNote(): bool
+    {
+        return $this->total_amount < 0;
+    }
+
+    public function stripeTransactions(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            StripeTransaction::class,
+            InvoiceItem::class,
+            'invoice_id',
+            'id',
+            'id',
+            'stripe_transaction_id'
+        );
+    }
+
+    public function hasStripeTransactions(): bool
+    {
+        return $this->items()->whereNotNull('stripe_transaction_id')->exists();
     }
 
     public function scopePending(Builder $query): Builder

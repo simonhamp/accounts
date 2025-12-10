@@ -20,6 +20,11 @@ class PersonResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUserGroup;
 
+    public static function getNavigationGroup(): ?string
+    {
+        return 'Settings';
+    }
+
     public static function form(Schema $schema): Schema
     {
         return PersonForm::configure($schema);

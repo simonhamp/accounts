@@ -24,6 +24,13 @@ class EditStripeTransaction extends EditRecord
         ];
     }
 
+    protected function afterSave(): void
+    {
+        if (! $this->record->isInvoiced()) {
+            $this->record->updateCompleteStatus();
+        }
+    }
+
     protected function getStripeUrl(): string
     {
         $transaction = $this->record;
