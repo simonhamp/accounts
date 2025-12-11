@@ -16,15 +16,33 @@
         .header {
             margin-bottom: 40px;
         }
+        .header-grid {
+            display: table;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .header-left {
+            display: table-cell;
+            width: 55%;
+            vertical-align: top;
+        }
+        .header-right {
+            display: table-cell;
+            width: 45%;
+            vertical-align: top;
+            text-align: right;
+        }
         .header h1 {
             font-size: 24px;
             margin: 0 0 10px 0;
             color: #000;
         }
-        .header-info {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 20px;
+        .from-details {
+            line-height: 1.6;
+            font-size: 11px;
+        }
+        .from-details strong {
+            font-size: 12px;
         }
         .section {
             margin-bottom: 25px;
@@ -191,23 +209,25 @@
 </head>
 <body>
     <div class="header">
-        <h1>{{ $invoice->isCreditNote() ? 'NOTA DE CRÉDITO' : 'FACTURA' }}</h1>
-        <p><strong>Nº:</strong> {{ $invoice->invoice_number }}</p>
-        <p><strong>Fecha:</strong> {{ $invoice->invoice_date->format('d/m/Y') }}</p>
-        <p><strong>Vencimiento:</strong> {{ $invoice->due_date ? $invoice->due_date->format('d/m/Y') : 'Al Recibo' }}</p>
-        @if($invoice->isCreditNote() && $invoice->parentInvoice)
-        <p><strong>Referencia Factura Original:</strong> {{ $invoice->parentInvoice->invoice_number }}</p>
-        @endif
-    </div>
-
-    <div class="section">
-        <div class="section-title">DATOS DEL EMISOR</div>
-        <div class="details">
-            <strong>{{ $invoice->person->name }}</strong><br>
-            {{ $invoice->person->address }}<br>
-            {{ $invoice->person->postal_code }}, {{ $invoice->person->city }}<br>
-            {{ $invoice->person->country }}<br>
-            <strong>DNI/NIE:</strong> {{ $invoice->person->dni_nie }}
+        <div class="header-grid">
+            <div class="header-left">
+                <h1>{{ $invoice->isCreditNote() ? 'NOTA DE CRÉDITO' : 'FACTURA' }}</h1>
+                <p><strong>Nº:</strong> {{ $invoice->invoice_number }}</p>
+                <p><strong>Fecha:</strong> {{ $invoice->invoice_date->format('d/m/Y') }}</p>
+                <p><strong>Vencimiento:</strong> {{ $invoice->due_date ? $invoice->due_date->format('d/m/Y') : 'Al Recibo' }}</p>
+                @if($invoice->isCreditNote() && $invoice->parentInvoice)
+                <p><strong>Referencia Factura Original:</strong> {{ $invoice->parentInvoice->invoice_number }}</p>
+                @endif
+            </div>
+            <div class="header-right">
+                <div class="from-details">
+                    <strong>{{ $invoice->person->name }}</strong><br>
+                    {{ $invoice->person->address }}<br>
+                    {{ $invoice->person->postal_code }}, {{ $invoice->person->city }}<br>
+                    {{ $invoice->person->country }}<br>
+                    DNI/NIE: {{ $invoice->person->dni_nie }}
+                </div>
+            </div>
         </div>
     </div>
 
@@ -288,7 +308,7 @@
         <p>{{ $invoice->isCreditNote() ? 'Nota de crédito generada' : 'Factura generada' }} el {{ $invoice->generated_at?->format('d/m/Y H:i') ?? now()->format('d/m/Y H:i') }}</p>
     </div>
 
-    @if($invoice->bankAccount)
+    @if($invoice->bankAccount && !$invoice->isCreditNote())
     <div class="page-break"></div>
     <div class="payment-page">
         <h1>DATOS DE PAGO</h1>
@@ -352,10 +372,15 @@
 
             @if($invoice->bankAccount->sort_code)
                 <div class="detail-row">
-                    <div class="detail-label">Código de Clasificación</div>
+                    <div class="detail-label">Código de clasificación/número de ruta</div>
                     <div class="detail-value">{{ $invoice->bankAccount->sort_code }}</div>
                 </div>
             @endif
+
+            <div class="detail-row">
+                <div class="detail-label">Tipo de Cuenta</div>
+                <div class="detail-value">Corriente (Checking)</div>
+            </div>
         </div>
 
         <div class="reference">
