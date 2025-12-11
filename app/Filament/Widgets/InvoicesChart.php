@@ -23,30 +23,48 @@ class InvoicesChart extends ChartWidget
 
         $invoices = Invoice::query()
             ->select(
+                'currency',
                 DB::raw('CAST(strftime("%m", invoice_date) AS INTEGER) as month'),
                 DB::raw('SUM(total_amount) as total')
             )
             ->whereYear('invoice_date', $year)
-            ->groupBy(DB::raw('strftime("%m", invoice_date)'))
-            ->pluck('total', 'month')
-            ->toArray();
+            ->groupBy('currency', DB::raw('strftime("%m", invoice_date)'))
+            ->get();
 
-        $data = [];
-        for ($i = 1; $i <= 12; $i++) {
-            $data[] = isset($invoices[$i]) ? $invoices[$i] / 100 : 0;
-        }
+        $currencies = $invoices->pluck('currency')->unique()->sort()->values();
+
+        $datasets = $currencies->map(function (string $currency) use ($invoices) {
+            $currencyData = $invoices->where('currency', $currency)->pluck('total', 'month');
+
+            $data = [];
+            for ($i = 1; $i <= 12; $i++) {
+                $data[] = isset($currencyData[$i]) ? $currencyData[$i] / 100 : 0;
+            }
+
+            $colors = $this->getCurrencyColors($currency);
+
+            return [
+                'label' => $currency,
+                'data' => $data,
+                'backgroundColor' => $colors['background'],
+                'borderColor' => $colors['border'],
+            ];
+        })->toArray();
 
         return [
-            'datasets' => [
-                [
-                    'label' => 'Invoices Total',
-                    'data' => $data,
-                    'backgroundColor' => 'rgba(34, 197, 94, 0.5)',
-                    'borderColor' => 'rgb(34, 197, 94)',
-                ],
-            ],
+            'datasets' => $datasets,
             'labels' => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
         ];
+    }
+
+    protected function getCurrencyColors(string $currency): array
+    {
+        return match ($currency) {
+            'EUR' => ['background' => 'rgba(59, 130, 246, 0.5)', 'border' => 'rgb(59, 130, 246)'],
+            'USD' => ['background' => 'rgba(34, 197, 94, 0.5)', 'border' => 'rgb(34, 197, 94)'],
+            'GBP' => ['background' => 'rgba(168, 85, 247, 0.5)', 'border' => 'rgb(168, 85, 247)'],
+            default => ['background' => 'rgba(107, 114, 128, 0.5)', 'border' => 'rgb(107, 114, 128)'],
+        };
     }
 
     protected function getType(): string
