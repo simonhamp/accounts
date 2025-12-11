@@ -285,17 +285,17 @@
         </table>
     </div>
 
-    @if($invoice->items->whereNotNull('stripe_transaction_id')->isNotEmpty())
+    @if($invoice->isPaid())
     <div class="payment-info">
         <div class="paid-stamp">PAID</div>
         <table>
             <tr>
                 <td><strong>Payment Date:</strong></td>
-                <td>{{ $invoice->invoice_date->format('d/m/Y') }}</td>
+                <td>{{ $invoice->updated_at->format('d/m/Y') }}</td>
             </tr>
             <tr>
                 <td><strong>Payment Method:</strong></td>
-                <td>Stripe</td>
+                <td>{{ $invoice->items->whereNotNull('stripe_transaction_id')->isNotEmpty() ? 'Stripe' : 'Bank' }}</td>
             </tr>
         </table>
         <div class="balance-due">

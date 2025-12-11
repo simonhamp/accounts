@@ -148,10 +148,19 @@ class EditInvoice extends EditRecord
                     if ($data['payment_type'] === 'full') {
                         $this->record->markAsPaid();
 
+                        // Regenerate PDFs to show paid status
+                        try {
+                            $invoiceService = app(InvoiceService::class);
+                            $invoiceService->regeneratePdf($this->record);
+                        } catch (\Exception $e) {
+                            // Log but don't fail - the payment status is more important
+                            report($e);
+                        }
+
                         Notification::make()
                             ->success()
                             ->title('Invoice marked as paid')
-                            ->body('The invoice has been marked as fully paid.')
+                            ->body('The invoice has been marked as fully paid and PDFs have been regenerated.')
                             ->send();
                     } else {
                         $this->record->markAsPartiallyPaid();
@@ -163,7 +172,7 @@ class EditInvoice extends EditRecord
                             ->send();
                     }
 
-                    $this->refreshFormData(['status']);
+                    $this->refreshFormData(['status', 'pdf_path', 'pdf_path_en', 'generated_at']);
                 }),
 
             Action::make('writeOff')
