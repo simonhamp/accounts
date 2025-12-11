@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Bills\Tables;
 
 use App\Enums\BillStatus;
+use App\Models\Person;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
@@ -10,6 +11,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -31,6 +33,11 @@ class BillsTable
                     ->sortable(),
                 TextColumn::make('supplier.name')
                     ->placeholder('Unknown Supplier')
+                    ->searchable()
+                    ->sortable(),
+                TextColumn::make('person.name')
+                    ->label('Person')
+                    ->placeholder('Unassigned')
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('bill_number')
@@ -105,6 +112,26 @@ class BillsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    BulkAction::make('assignPerson')
+                        ->label('Assign to Person')
+                        ->icon('heroicon-o-user')
+                        ->form([
+                            Select::make('person_id')
+                                ->label('Person')
+                                ->options(Person::pluck('name', 'id'))
+                                ->searchable()
+                                ->required(),
+                        ])
+                        ->action(function (Collection $records, array $data) {
+                            $records->each(fn ($record) => $record->update(['person_id' => $data['person_id']]));
+
+                            Notification::make()
+                                ->success()
+                                ->title('Bills assigned')
+                                ->body($records->count().' bill(s) have been assigned.')
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
                     BulkAction::make('markPaid')
                         ->label('Mark as Paid')
                         ->icon('heroicon-o-check-circle')

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\StripeTransactions\Pages;
 
+use App\Filament\Resources\Invoices\InvoiceResource;
 use App\Filament\Resources\StripeTransactions\StripeTransactionResource;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -14,6 +15,14 @@ class EditStripeTransaction extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('view_invoice')
+                ->label('View Invoice')
+                ->icon('heroicon-o-document-text')
+                ->color('success')
+                ->visible(fn () => $this->record->isInvoiced())
+                ->url(fn () => InvoiceResource::getUrl('edit', [
+                    'record' => $this->record->invoiceItem->invoice,
+                ])),
             Action::make('view_in_stripe')
                 ->label('View in Stripe')
                 ->icon('heroicon-o-arrow-top-right-on-square')

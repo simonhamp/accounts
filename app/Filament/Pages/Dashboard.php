@@ -7,6 +7,7 @@ use App\Filament\Widgets\InvoicesChart;
 use App\Filament\Widgets\NetIncomeStats;
 use App\Filament\Widgets\OtherIncomeChart;
 use App\Filament\Widgets\PersonEarningsChart;
+use App\Filament\Widgets\PersonExpensesChart;
 use Filament\Forms\Components\Select;
 use Filament\Pages\Dashboard as BaseDashboard;
 use Filament\Pages\Dashboard\Concerns\HasFiltersForm;
@@ -24,6 +25,7 @@ class Dashboard extends BaseDashboard
             BillsChart::class,
             OtherIncomeChart::class,
             PersonEarningsChart::class,
+            PersonExpensesChart::class,
         ];
     }
 

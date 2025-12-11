@@ -16,6 +16,7 @@ class Bill extends Model
 
     protected $fillable = [
         'supplier_id',
+        'person_id',
         'bill_number',
         'bill_date',
         'due_date',
@@ -42,6 +43,11 @@ class Bill extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function person(): BelongsTo
+    {
+        return $this->belongsTo(Person::class);
     }
 
     public function items(): HasMany
@@ -84,7 +90,7 @@ class Bill extends Model
 
     public function isPending(): bool
     {
-        return $this->status->isPending();
+        return $this->status?->isPending() ?? false;
     }
 
     public function isPaid(): bool
@@ -94,12 +100,12 @@ class Bill extends Model
 
     public function needsReview(): bool
     {
-        return $this->status->needsReview();
+        return $this->status?->needsReview() ?? false;
     }
 
     public function canBePaid(): bool
     {
-        return $this->status->canBePaid();
+        return $this->status?->canBePaid() ?? false;
     }
 
     public function markAsExtracted(): void

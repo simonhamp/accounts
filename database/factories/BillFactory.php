@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\BillStatus;
+use App\Models\Person;
 use App\Models\Supplier;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -22,6 +23,7 @@ class BillFactory extends Factory
 
         return [
             'supplier_id' => Supplier::factory(),
+            'person_id' => Person::factory(),
             'bill_number' => fake()->unique()->numerify('INV-####'),
             'bill_date' => $billDate,
             'due_date' => fake()->optional(0.8)->dateTimeBetween($billDate, '+30 days'),

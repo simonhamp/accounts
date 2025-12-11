@@ -2,13 +2,17 @@
 
 use App\Enums\BillStatus;
 use App\Exceptions\ImportFailedException;
+use App\Filament\Resources\Bills\Pages\CreateBill;
 use App\Jobs\ProcessBillImport;
 use App\Models\Bill;
+use App\Models\Person;
 use App\Models\Supplier;
+use App\Models\User;
 use App\Services\BillExtractionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
@@ -18,6 +22,45 @@ describe('Bill Status', function () {
 
         expect($bill->status)->toBe(BillStatus::Pending);
         expect($bill->isPending())->toBeTrue();
+    });
+
+    it('handles isPending when status is null', function () {
+        $bill = new Bill;
+
+        expect($bill->isPending())->toBeFalse();
+        expect($bill->needsReview())->toBeFalse();
+        expect($bill->canBePaid())->toBeFalse();
+    });
+
+    it('creates manually created bills with reviewed status', function () {
+        $user = User::factory()->create();
+        $supplier = Supplier::factory()->create();
+        $person = Person::factory()->create();
+
+        $this->actingAs($user);
+
+        Livewire::test(CreateBill::class)
+            ->fillForm([
+                'person_id' => $person->id,
+                'supplier_id' => $supplier->id,
+                'bill_number' => 'MANUAL-001',
+                'total_amount' => 10000,
+                'currency' => 'EUR',
+            ])
+            ->call('create')
+            ->assertNotified()
+            ->assertRedirect();
+
+        $this->assertDatabaseHas(Bill::class, [
+            'bill_number' => 'MANUAL-001',
+            'person_id' => $person->id,
+            'status' => BillStatus::Reviewed->value,
+        ]);
+
+        $bill = Bill::where('bill_number', 'MANUAL-001')->first();
+        expect($bill->status)->toBe(BillStatus::Reviewed);
+        expect($bill->person_id)->toBe($person->id);
+        expect($bill->canBePaid())->toBeTrue();
     });
 
     it('can create paid bills', function () {

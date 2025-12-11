@@ -59,6 +59,15 @@ class BillForm
 
                 Section::make('Bill Details')
                     ->components([
+                        Select::make('person_id')
+                            ->relationship('person', 'name')
+                            ->searchable()
+                            ->preload()
+                            ->required(fn ($record) => $record === null || $record->needsReview())
+                            ->helperText(fn ($record) => $record?->needsReview()
+                                ? 'Required before approving'
+                                : null),
+
                         Select::make('supplier_id')
                             ->relationship('supplier', 'name')
                             ->searchable()

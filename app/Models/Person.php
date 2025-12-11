@@ -43,6 +43,11 @@ class Person extends Model
         return $this->hasMany(OtherIncome::class);
     }
 
+    public function bills(): HasMany
+    {
+        return $this->hasMany(Bill::class);
+    }
+
     public function getNextInvoiceNumber(): string
     {
         $invoiceNumber = str_pad((string) $this->next_invoice_number, 5, '0', STR_PAD_LEFT);

@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('stripe:sync-transactions')->daily();
+Schedule::command('checklist:generate')->monthlyOn(1, '00:00');
