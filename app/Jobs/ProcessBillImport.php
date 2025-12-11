@@ -31,14 +31,14 @@ class ProcessBillImport implements ShouldQueue
             throw ImportFailedException::missingFilePath($this->bill);
         }
 
-        $pdfPath = Storage::disk('local')->path($this->bill->original_file_path);
+        $filePath = Storage::disk('local')->path($this->bill->original_file_path);
 
-        if (! file_exists($pdfPath)) {
-            throw ImportFailedException::fileNotFound($this->bill, $pdfPath);
+        if (! file_exists($filePath)) {
+            throw ImportFailedException::fileNotFound($this->bill, $filePath);
         }
 
         try {
-            $extracted = $extractionService->extractFromPdf($pdfPath);
+            $extracted = $extractionService->extract($filePath);
 
             $supplier = $this->findOrCreateSupplier($extracted);
 

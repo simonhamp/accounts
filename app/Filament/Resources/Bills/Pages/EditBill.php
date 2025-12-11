@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Bills\Pages;
 
 use App\Filament\Resources\Bills\BillResource;
+use App\Filament\Resources\Suppliers\SupplierResource;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -76,6 +77,13 @@ class EditBill extends EditRecord
                         ->body("Bill {$this->record->bill_number} has been marked as paid.")
                         ->send();
                 }),
+
+            Action::make('viewSupplier')
+                ->label('View Supplier')
+                ->icon('heroicon-o-building-office')
+                ->color('gray')
+                ->url(fn () => SupplierResource::getUrl('edit', ['record' => $this->record->supplier]))
+                ->visible(fn () => $this->record->supplier_id !== null),
 
             DeleteAction::make(),
         ];

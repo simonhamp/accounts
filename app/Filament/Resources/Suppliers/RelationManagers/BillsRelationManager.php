@@ -3,10 +3,11 @@
 namespace App\Filament\Resources\Suppliers\RelationManagers;
 
 use App\Enums\BillStatus;
+use App\Filament\Resources\Bills\BillResource;
+use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -100,7 +101,8 @@ class BillsRelationManager extends RelationManager
                 CreateAction::make(),
             ])
             ->actions([
-                EditAction::make(),
+                Action::make('edit')
+                    ->url(fn ($record) => BillResource::getUrl('edit', ['record' => $record])),
                 DeleteAction::make(),
             ])
             ->bulkActions([

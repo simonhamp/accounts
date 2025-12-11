@@ -21,12 +21,20 @@ class BillForm
     {
         return $schema
             ->components([
-                Section::make('Original PDF')
+                Section::make('Original Document')
                     ->components([
-                        Placeholder::make('pdf_preview')
+                        Placeholder::make('document_preview')
                             ->label('')
                             ->content(function ($record) {
                                 $url = route('bills.original-pdf', $record);
+                                $extension = strtolower(pathinfo($record->original_file_path, PATHINFO_EXTENSION));
+                                $isImage = in_array($extension, ['jpg', 'jpeg', 'png', 'webp'], true);
+
+                                if ($isImage) {
+                                    return new HtmlString(
+                                        '<img src="'.$url.'" class="rounded-lg border border-gray-200 dark:border-gray-700" style="max-width: 100%; max-height: 600px; height: auto; object-fit: contain;" />'
+                                    );
+                                }
 
                                 return new HtmlString(
                                     '<iframe src="'.$url.'" class="w-full rounded-lg border border-gray-200 dark:border-gray-700" style="height: 600px;"></iframe>'

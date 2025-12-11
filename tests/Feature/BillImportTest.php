@@ -206,7 +206,7 @@ describe('Process Bill Import Job', function () {
 
         $bill->refresh();
         expect($bill->status)->toBe(BillStatus::Failed);
-        expect($bill->error_message)->toContain('PDF file not found');
+        expect($bill->error_message)->toContain('file not found');
     });
 
     it('creates supplier during extraction if not found', function () {
@@ -230,7 +230,7 @@ describe('Process Bill Import Job', function () {
         ];
 
         $mockExtractionService = mock(BillExtractionService::class);
-        $mockExtractionService->shouldReceive('extractFromPdf')
+        $mockExtractionService->shouldReceive('extract')
             ->once()
             ->andReturn($extractedData);
 
@@ -275,7 +275,7 @@ describe('Process Bill Import Job', function () {
         ];
 
         $mockExtractionService = mock(BillExtractionService::class);
-        $mockExtractionService->shouldReceive('extractFromPdf')
+        $mockExtractionService->shouldReceive('extract')
             ->once()
             ->andReturn($extractedData);
 
@@ -319,7 +319,7 @@ describe('Process Bill Import Job', function () {
         ];
 
         $mockExtractionService = mock(BillExtractionService::class);
-        $mockExtractionService->shouldReceive('extractFromPdf')
+        $mockExtractionService->shouldReceive('extract')
             ->once()
             ->andReturn($extractedData);
 
@@ -357,7 +357,7 @@ describe('Process Bill Import Job', function () {
         ];
 
         $mockExtractionService = mock(BillExtractionService::class);
-        $mockExtractionService->shouldReceive('extractFromPdf')
+        $mockExtractionService->shouldReceive('extract')
             ->once()
             ->andReturn($extractedData);
 
@@ -389,7 +389,7 @@ describe('Process Bill Import Job', function () {
         ];
 
         $mockExtractionService = mock(BillExtractionService::class);
-        $mockExtractionService->shouldReceive('extractFromPdf')
+        $mockExtractionService->shouldReceive('extract')
             ->once()
             ->andReturn($extractedData);
 
@@ -419,6 +419,67 @@ describe('Batch Import', function () {
         ProcessBillImport::dispatch($bill2);
 
         Queue::assertPushed(ProcessBillImport::class, 2);
+    });
+});
+
+describe('Image Import Support', function () {
+    it('can process image files for extraction', function () {
+        Storage::fake('local');
+        Storage::disk('local')->put('receipt.jpg', 'fake image content');
+
+        $bill = Bill::factory()->pending()->create([
+            'original_file_path' => 'receipt.jpg',
+        ]);
+
+        $extractedData = [
+            'supplier_name' => 'Coffee Shop',
+            'bill_number' => 'REC-001',
+            'bill_date' => '2025-01-15',
+            'total_amount' => 450,
+            'currency' => 'EUR',
+            'items' => [
+                [
+                    'description' => 'Coffee',
+                    'quantity' => 1,
+                    'unit_price' => 450,
+                    'total' => 450,
+                ],
+            ],
+        ];
+
+        $mockExtractionService = mock(BillExtractionService::class);
+        $mockExtractionService->shouldReceive('extract')
+            ->once()
+            ->andReturn($extractedData);
+
+        $job = new ProcessBillImport($bill);
+        $job->handle($mockExtractionService);
+
+        $bill->refresh();
+
+        expect($bill->status)->toBe(BillStatus::Extracted);
+        expect($bill->bill_number)->toBe('REC-001');
+        expect($bill->total_amount)->toBe(450);
+    });
+
+    it('identifies image file types correctly', function () {
+        $service = app(BillExtractionService::class);
+
+        expect($service->isImage('receipt.jpg'))->toBeTrue();
+        expect($service->isImage('receipt.jpeg'))->toBeTrue();
+        expect($service->isImage('receipt.png'))->toBeTrue();
+        expect($service->isImage('receipt.webp'))->toBeTrue();
+        expect($service->isImage('receipt.JPG'))->toBeTrue();
+        expect($service->isImage('bill.pdf'))->toBeFalse();
+    });
+
+    it('identifies pdf file types correctly', function () {
+        $service = app(BillExtractionService::class);
+
+        expect($service->isPdf('bill.pdf'))->toBeTrue();
+        expect($service->isPdf('bill.PDF'))->toBeTrue();
+        expect($service->isPdf('receipt.jpg'))->toBeFalse();
+        expect($service->isPdf('receipt.png'))->toBeFalse();
     });
 });
 

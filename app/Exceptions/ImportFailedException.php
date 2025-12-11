@@ -25,6 +25,6 @@ class ImportFailedException extends Exception
     {
         $modelClass = class_basename($model);
 
-        return new self("Original PDF file not found for {$modelClass} #{$model->id}: {$path}", $model);
+        return new self("Original file not found for {$modelClass} #{$model->id}: {$path}", $model);
     }
 }

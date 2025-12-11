@@ -48,16 +48,21 @@ class BatchImportBills extends Page implements HasForms
         return $schema
             ->components([
                 Section::make('Upload Supplier Bills')
-                    ->description('Upload one or more PDF bills from suppliers. They will be queued for extraction and can be reviewed afterward.')
+                    ->description('Upload one or more bills from suppliers (PDFs or photos of receipts). They will be queued for extraction and can be reviewed afterward.')
                     ->components([
-                        FileUpload::make('pdfs')
-                            ->label('Bill PDFs')
-                            ->acceptedFileTypes(['application/pdf'])
+                        FileUpload::make('files')
+                            ->label('Bills & Receipts')
+                            ->acceptedFileTypes([
+                                'application/pdf',
+                                'image/png',
+                                'image/jpeg',
+                                'image/webp',
+                            ])
                             ->multiple()
                             ->maxFiles(50)
                             ->maxSize(10240)
                             ->required()
-                            ->helperText('You can upload up to 50 PDFs at once (max 10MB each)'),
+                            ->helperText('You can upload up to 50 files at once (PDFs or images, max 10MB each)'),
                     ]),
             ])
             ->statePath('data');
@@ -78,10 +83,10 @@ class BatchImportBills extends Page implements HasForms
     {
         $data = $this->form->getState();
 
-        if (empty($data['pdfs'])) {
+        if (empty($data['files'])) {
             Notification::make()
                 ->danger()
-                ->title('Please upload at least one PDF file')
+                ->title('Please upload at least one file')
                 ->send();
 
             return;
@@ -89,10 +94,10 @@ class BatchImportBills extends Page implements HasForms
 
         $queued = 0;
 
-        foreach ($data['pdfs'] as $pdfPath) {
+        foreach ($data['files'] as $filePath) {
             $bill = Bill::create([
                 'status' => BillStatus::Pending,
-                'original_file_path' => $pdfPath,
+                'original_file_path' => $filePath,
                 'currency' => 'EUR',
                 'total_amount' => 0,
             ]);
