@@ -65,11 +65,10 @@ class SupplierForm
                                 11 => 'November',
                                 12 => 'December',
                             ])
-                            ->visible(fn ($get) => $get('billing_frequency') === BillingFrequency::Annual->value)
-                            ->required(fn ($get) => $get('billing_frequency') === BillingFrequency::Annual->value)
+                            ->visible(fn ($get) => in_array($get('billing_frequency'), [BillingFrequency::Annual, BillingFrequency::Annual->value], true))
+                            ->required(fn ($get) => in_array($get('billing_frequency'), [BillingFrequency::Annual, BillingFrequency::Annual->value], true))
                             ->helperText('Which month do you expect the annual bill?'),
-                    ])
-                    ->columns(3),
+                    ]),
             ]);
     }
 }
