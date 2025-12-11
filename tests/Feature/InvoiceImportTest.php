@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\InvoiceStatus;
+use App\Exceptions\ImportFailedException;
 use App\Jobs\ProcessInvoiceImport;
 use App\Models\BankAccount;
 use App\Models\Invoice;
@@ -165,20 +166,34 @@ describe('Invoice Finalization', function () {
 });
 
 describe('Process Invoice Import Job', function () {
-    it('fails if no original file path', function () {
+    it('throws exception if no original file path', function () {
         $invoice = Invoice::factory()->pending()->create([
             'original_file_path' => null,
         ]);
 
         $job = new ProcessInvoiceImport($invoice);
         $job->handle(app(InvoiceExtractionService::class));
+    })->throws(ImportFailedException::class);
+
+    it('marks invoice as failed when job fails due to missing file path', function () {
+        $invoice = Invoice::factory()->pending()->create([
+            'original_file_path' => null,
+        ]);
+
+        $job = new ProcessInvoiceImport($invoice);
+
+        try {
+            $job->handle(app(InvoiceExtractionService::class));
+        } catch (ImportFailedException $e) {
+            $job->failed($e);
+        }
 
         $invoice->refresh();
         expect($invoice->status)->toBe(InvoiceStatus::Failed);
-        expect($invoice->error_message)->toBe('No original file path specified');
+        expect($invoice->error_message)->toContain('No original file path');
     });
 
-    it('fails if file does not exist', function () {
+    it('throws exception if file does not exist', function () {
         Storage::fake('local');
 
         $invoice = Invoice::factory()->pending()->create([
@@ -187,10 +202,26 @@ describe('Process Invoice Import Job', function () {
 
         $job = new ProcessInvoiceImport($invoice);
         $job->handle(app(InvoiceExtractionService::class));
+    })->throws(ImportFailedException::class);
+
+    it('marks invoice as failed when job fails due to missing file', function () {
+        Storage::fake('local');
+
+        $invoice = Invoice::factory()->pending()->create([
+            'original_file_path' => 'non-existent-file.pdf',
+        ]);
+
+        $job = new ProcessInvoiceImport($invoice);
+
+        try {
+            $job->handle(app(InvoiceExtractionService::class));
+        } catch (ImportFailedException $e) {
+            $job->failed($e);
+        }
 
         $invoice->refresh();
         expect($invoice->status)->toBe(InvoiceStatus::Failed);
-        expect($invoice->error_message)->toBe('Original PDF file not found');
+        expect($invoice->error_message)->toContain('PDF file not found');
     });
 
     it('creates line items during extraction', function () {

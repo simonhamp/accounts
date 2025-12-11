@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Exceptions\ImportFailedException;
 use App\Models\IncomeSource;
 use App\Models\OtherIncome;
 use App\Services\OtherIncomeExtractionService;
@@ -26,22 +27,13 @@ class ProcessOtherIncomeImport implements ShouldQueue
     public function handle(OtherIncomeExtractionService $extractionService): void
     {
         if (! $this->otherIncome->original_file_path) {
-            Log::warning('OtherIncome import: No original file path', [
-                'other_income_id' => $this->otherIncome->id,
-            ]);
-
-            return;
+            throw ImportFailedException::missingFilePath($this->otherIncome);
         }
 
         $pdfPath = Storage::disk('local')->path($this->otherIncome->original_file_path);
 
         if (! file_exists($pdfPath)) {
-            Log::error('OtherIncome import: PDF file not found', [
-                'other_income_id' => $this->otherIncome->id,
-                'path' => $pdfPath,
-            ]);
-
-            return;
+            throw ImportFailedException::fileNotFound($this->otherIncome, $pdfPath);
         }
 
         try {

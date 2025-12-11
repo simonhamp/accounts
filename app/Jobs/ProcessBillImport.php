@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\InvoiceItemUnit;
+use App\Exceptions\ImportFailedException;
 use App\Models\Bill;
 use App\Models\Supplier;
 use App\Services\BillExtractionService;
@@ -27,17 +28,13 @@ class ProcessBillImport implements ShouldQueue
     public function handle(BillExtractionService $extractionService): void
     {
         if (! $this->bill->original_file_path) {
-            $this->bill->markAsFailed('No original file path specified');
-
-            return;
+            throw ImportFailedException::missingFilePath($this->bill);
         }
 
         $pdfPath = Storage::disk('local')->path($this->bill->original_file_path);
 
         if (! file_exists($pdfPath)) {
-            $this->bill->markAsFailed('Original PDF file not found');
-
-            return;
+            throw ImportFailedException::fileNotFound($this->bill, $pdfPath);
         }
 
         try {

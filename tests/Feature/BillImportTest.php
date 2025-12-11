@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\BillStatus;
+use App\Exceptions\ImportFailedException;
 use App\Jobs\ProcessBillImport;
 use App\Models\Bill;
 use App\Models\Supplier;
@@ -150,20 +151,34 @@ describe('Bill Payment Status', function () {
 });
 
 describe('Process Bill Import Job', function () {
-    it('fails if no original file path', function () {
+    it('throws exception if no original file path', function () {
         $bill = Bill::factory()->pending()->create([
             'original_file_path' => null,
         ]);
 
         $job = new ProcessBillImport($bill);
         $job->handle(app(BillExtractionService::class));
+    })->throws(ImportFailedException::class);
+
+    it('marks bill as failed when job fails due to missing file path', function () {
+        $bill = Bill::factory()->pending()->create([
+            'original_file_path' => null,
+        ]);
+
+        $job = new ProcessBillImport($bill);
+
+        try {
+            $job->handle(app(BillExtractionService::class));
+        } catch (ImportFailedException $e) {
+            $job->failed($e);
+        }
 
         $bill->refresh();
         expect($bill->status)->toBe(BillStatus::Failed);
-        expect($bill->error_message)->toBe('No original file path specified');
+        expect($bill->error_message)->toContain('No original file path');
     });
 
-    it('fails if file does not exist', function () {
+    it('throws exception if file does not exist', function () {
         Storage::fake('local');
 
         $bill = Bill::factory()->pending()->create([
@@ -172,10 +187,26 @@ describe('Process Bill Import Job', function () {
 
         $job = new ProcessBillImport($bill);
         $job->handle(app(BillExtractionService::class));
+    })->throws(ImportFailedException::class);
+
+    it('marks bill as failed when job fails due to missing file', function () {
+        Storage::fake('local');
+
+        $bill = Bill::factory()->pending()->create([
+            'original_file_path' => 'non-existent-file.pdf',
+        ]);
+
+        $job = new ProcessBillImport($bill);
+
+        try {
+            $job->handle(app(BillExtractionService::class));
+        } catch (ImportFailedException $e) {
+            $job->failed($e);
+        }
 
         $bill->refresh();
         expect($bill->status)->toBe(BillStatus::Failed);
-        expect($bill->error_message)->toBe('Original PDF file not found');
+        expect($bill->error_message)->toContain('PDF file not found');
     });
 
     it('creates supplier during extraction if not found', function () {

@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\InvoiceItemUnit;
+use App\Exceptions\ImportFailedException;
 use App\Models\Invoice;
 use App\Services\InvoiceExtractionService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -26,17 +27,13 @@ class ProcessInvoiceImport implements ShouldQueue
     public function handle(InvoiceExtractionService $extractionService): void
     {
         if (! $this->invoice->original_file_path) {
-            $this->invoice->markAsFailed('No original file path specified');
-
-            return;
+            throw ImportFailedException::missingFilePath($this->invoice);
         }
 
         $pdfPath = Storage::disk('local')->path($this->invoice->original_file_path);
 
         if (! file_exists($pdfPath)) {
-            $this->invoice->markAsFailed('Original PDF file not found');
-
-            return;
+            throw ImportFailedException::fileNotFound($this->invoice, $pdfPath);
         }
 
         try {
