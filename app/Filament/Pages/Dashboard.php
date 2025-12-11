@@ -2,6 +2,11 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\BillsChart;
+use App\Filament\Widgets\InvoicesChart;
+use App\Filament\Widgets\NetIncomeStats;
+use App\Filament\Widgets\OtherIncomeChart;
+use App\Filament\Widgets\PersonEarningsChart;
 use Filament\Forms\Components\Select;
 use Filament\Pages\Dashboard as BaseDashboard;
 use Filament\Pages\Dashboard\Concerns\HasFiltersForm;
@@ -10,6 +15,17 @@ use Filament\Schemas\Schema;
 class Dashboard extends BaseDashboard
 {
     use HasFiltersForm;
+
+    public function getWidgets(): array
+    {
+        return [
+            NetIncomeStats::class,
+            InvoicesChart::class,
+            BillsChart::class,
+            OtherIncomeChart::class,
+            PersonEarningsChart::class,
+        ];
+    }
 
     public function filtersForm(Schema $schema): Schema
     {
