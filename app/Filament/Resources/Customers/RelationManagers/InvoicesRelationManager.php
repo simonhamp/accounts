@@ -3,11 +3,12 @@
 namespace App\Filament\Resources\Customers\RelationManagers;
 
 use App\Enums\InvoiceStatus;
+use App\Filament\Resources\Invoices\InvoiceResource;
 use App\Models\Person;
+use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
@@ -131,7 +132,8 @@ class InvoicesRelationManager extends RelationManager
                     }),
             ])
             ->actions([
-                EditAction::make(),
+                Action::make('edit')
+                    ->url(fn ($record) => InvoiceResource::getUrl('edit', ['record' => $record])),
                 DeleteAction::make(),
             ])
             ->bulkActions([

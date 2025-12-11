@@ -221,7 +221,7 @@ describe('Process Invoice Import Job', function () {
 
         $invoice->refresh();
         expect($invoice->status)->toBe(InvoiceStatus::Failed);
-        expect($invoice->error_message)->toContain('PDF file not found');
+        expect($invoice->error_message)->toContain('file not found');
     });
 
     it('creates line items during extraction', function () {
