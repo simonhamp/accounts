@@ -75,6 +75,14 @@ class BillsTable
                     ->relationship('supplier', 'name')
                     ->searchable()
                     ->preload(),
+                SelectFilter::make('person')
+                    ->relationship('person', 'name')
+                    ->searchable()
+                    ->preload(),
+                Filter::make('unassigned')
+                    ->label('Unassigned')
+                    ->toggle()
+                    ->query(fn (Builder $query) => $query->whereNull('person_id')),
                 Filter::make('bill_date')
                     ->form([
                         DatePicker::make('from')
