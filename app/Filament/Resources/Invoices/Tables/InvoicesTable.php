@@ -144,19 +144,51 @@ class InvoicesTable
                                     ->send();
                             }
                         }),
-                    Action::make('regenerate')
-                        ->label('Regenerate PDF')
-                        ->icon('heroicon-o-arrow-path')
+                    Action::make('markSent')
+                        ->label('Mark as Sent')
+                        ->icon('heroicon-o-paper-airplane')
+                        ->color('info')
                         ->requiresConfirmation()
-                        ->visible(fn ($record) => $record->isFinalized())
+                        ->modalHeading('Mark Invoice as Sent')
+                        ->modalDescription('This will mark the invoice as sent and awaiting payment.')
+                        ->visible(fn ($record) => $record->canBeSent())
                         ->action(function ($record) {
-                            $invoiceService = app(InvoiceService::class);
-                            $invoiceService->regeneratePdf($record);
+                            $record->markAsSent();
 
                             Notification::make()
                                 ->success()
-                                ->title('Invoice regenerated')
-                                ->body("Invoice {$record->invoice_number} PDF has been regenerated.")
+                                ->title('Invoice marked as sent')
+                                ->body("Invoice {$record->invoice_number} is now awaiting payment.")
+                                ->send();
+                        }),
+                    Action::make('recordPayment')
+                        ->label('Paid')
+                        ->icon('heroicon-o-banknotes')
+                        ->color('success')
+                        ->visible(fn ($record) => $record->canRecordPayment())
+                        ->form([
+                            Radio::make('payment_type')
+                                ->label('Payment received')
+                                ->options([
+                                    'full' => 'Paid in full',
+                                    'partial' => 'Partially paid',
+                                ])
+                                ->default('full')
+                                ->required(),
+                        ])
+                        ->action(function ($record, array $data) {
+                            if ($data['payment_type'] === 'full') {
+                                $record->markAsPaid();
+                                $status = 'paid';
+                            } else {
+                                $record->markAsPartiallyPaid();
+                                $status = 'partially paid';
+                            }
+
+                            Notification::make()
+                                ->success()
+                                ->title('Payment recorded')
+                                ->body("Invoice {$record->invoice_number} marked as {$status}.")
                                 ->send();
                         }),
                     Action::make('download')
@@ -184,57 +216,98 @@ class InvoicesTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    BulkAction::make('finalize')
-                        ->label('Finalize')
-                        ->icon('heroicon-o-check-circle')
-                        ->color('success')
+                    BulkAction::make('markSent')
+                        ->label('Mark as Sent')
+                        ->icon('heroicon-o-paper-airplane')
+                        ->color('info')
                         ->requiresConfirmation()
-                        ->modalHeading('Finalize Invoices')
+                        ->modalHeading('Mark Invoices as Sent')
                         ->modalDescription(function (Collection $records) {
-                            $finalizableCount = $records->filter(fn ($record) => $record->canBeFinalized())->count();
+                            $sendableCount = $records->filter(fn ($record) => $record->canBeSent())->count();
 
-                            if ($finalizableCount === 0) {
-                                return 'None of the selected invoices can be finalized. Invoices must be in "Reviewed" status and assigned to a person.';
+                            if ($sendableCount === 0) {
+                                return 'None of the selected invoices can be marked as sent. Invoices must be in "Ready to Send" status.';
                             }
 
-                            $skippedCount = $records->count() - $finalizableCount;
-                            $message = "{$finalizableCount} invoice(s) will be finalized. This will generate invoice numbers and PDFs. This action cannot be undone.";
+                            $skippedCount = $records->count() - $sendableCount;
+                            $message = "{$sendableCount} invoice(s) will be marked as sent.";
 
                             if ($skippedCount > 0) {
-                                $message .= " {$skippedCount} invoice(s) will be skipped as they cannot be finalized.";
+                                $message .= " {$skippedCount} invoice(s) will be skipped as they are not ready to send.";
                             }
 
                             return $message;
                         })
                         ->action(function (Collection $records) {
-                            $invoiceService = app(InvoiceService::class);
-                            $finalized = 0;
-                            $failed = 0;
+                            $sent = 0;
 
-                            $finalizableRecords = $records->filter(fn ($record) => $record->canBeFinalized());
+                            $sendableRecords = $records->filter(fn ($record) => $record->canBeSent());
 
-                            foreach ($finalizableRecords as $record) {
-                                try {
-                                    $invoiceService->finalizeImportedInvoice($record);
-                                    $finalized++;
-                                } catch (\Exception $e) {
-                                    $failed++;
-                                }
+                            foreach ($sendableRecords as $record) {
+                                $record->markAsSent();
+                                $sent++;
                             }
 
-                            if ($finalized > 0) {
+                            if ($sent > 0) {
                                 Notification::make()
                                     ->success()
-                                    ->title('Invoices finalized')
-                                    ->body("{$finalized} invoice(s) have been finalized.")
+                                    ->title('Invoices marked as sent')
+                                    ->body("{$sent} invoice(s) have been marked as sent.")
                                     ->send();
                             }
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('recordPayment')
+                        ->label('Paid')
+                        ->icon('heroicon-o-banknotes')
+                        ->color('success')
+                        ->modalHeading('Record Payment')
+                        ->modalDescription(function (Collection $records) {
+                            $payableCount = $records->filter(fn ($record) => $record->canRecordPayment())->count();
 
-                            if ($failed > 0) {
+                            if ($payableCount === 0) {
+                                return 'None of the selected invoices can record payment. Invoices must be in "Sent" or "Partially Paid" status.';
+                            }
+
+                            $skippedCount = $records->count() - $payableCount;
+                            $message = "{$payableCount} invoice(s) will be updated.";
+
+                            if ($skippedCount > 0) {
+                                $message .= " {$skippedCount} invoice(s) will be skipped.";
+                            }
+
+                            return $message;
+                        })
+                        ->form([
+                            Radio::make('payment_type')
+                                ->label('Payment received')
+                                ->options([
+                                    'full' => 'Paid in full',
+                                    'partial' => 'Partially paid',
+                                ])
+                                ->default('full')
+                                ->required(),
+                        ])
+                        ->action(function (Collection $records, array $data) {
+                            $updated = 0;
+
+                            $payableRecords = $records->filter(fn ($record) => $record->canRecordPayment());
+
+                            foreach ($payableRecords as $record) {
+                                if ($data['payment_type'] === 'full') {
+                                    $record->markAsPaid();
+                                } else {
+                                    $record->markAsPartiallyPaid();
+                                }
+                                $updated++;
+                            }
+
+                            if ($updated > 0) {
+                                $status = $data['payment_type'] === 'full' ? 'paid' : 'partially paid';
                                 Notification::make()
-                                    ->danger()
-                                    ->title('Some invoices failed')
-                                    ->body("{$failed} invoice(s) could not be finalized.")
+                                    ->success()
+                                    ->title('Payment recorded')
+                                    ->body("{$updated} invoice(s) marked as {$status}.")
                                     ->send();
                             }
                         })

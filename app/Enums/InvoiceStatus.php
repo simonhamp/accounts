@@ -7,7 +7,10 @@ enum InvoiceStatus: string
     case Pending = 'pending';
     case Extracted = 'extracted';
     case Reviewed = 'reviewed';
-    case Finalized = 'finalized';
+    case ReadyToSend = 'finalized'; // Keep 'finalized' value for backwards compatibility
+    case Sent = 'sent';
+    case PartiallyPaid = 'partially_paid';
+    case Paid = 'paid';
     case Failed = 'failed';
 
     public function label(): string
@@ -16,7 +19,10 @@ enum InvoiceStatus: string
             self::Pending => 'Pending Extraction',
             self::Extracted => 'Awaiting Review',
             self::Reviewed => 'Ready to Finalize',
-            self::Finalized => 'Finalized',
+            self::ReadyToSend => 'Ready to Send',
+            self::Sent => 'Awaiting Payment',
+            self::PartiallyPaid => 'Partially Paid',
+            self::Paid => 'Paid',
             self::Failed => 'Failed',
         };
     }
@@ -27,7 +33,10 @@ enum InvoiceStatus: string
             self::Pending => 'gray',
             self::Extracted => 'warning',
             self::Reviewed => 'info',
-            self::Finalized => 'success',
+            self::ReadyToSend => 'success',
+            self::Sent => 'warning',
+            self::PartiallyPaid => 'info',
+            self::Paid => 'success',
             self::Failed => 'danger',
         };
     }
@@ -40,5 +49,20 @@ enum InvoiceStatus: string
     public function canBeFinalized(): bool
     {
         return $this === self::Reviewed;
+    }
+
+    public function canBeSent(): bool
+    {
+        return $this === self::ReadyToSend;
+    }
+
+    public function canRecordPayment(): bool
+    {
+        return in_array($this, [self::Sent, self::PartiallyPaid]);
+    }
+
+    public function canWriteOff(): bool
+    {
+        return in_array($this, [self::Sent, self::PartiallyPaid]);
     }
 }

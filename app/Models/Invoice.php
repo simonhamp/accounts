@@ -28,6 +28,7 @@ class Invoice extends Model
         'customer_address',
         'customer_tax_id',
         'total_amount',
+        'write_off_amount',
         'currency',
         'pdf_path',
         'pdf_path_en',
@@ -36,6 +37,8 @@ class Invoice extends Model
         'original_file_path',
         'extracted_data',
         'error_message',
+        'current_state_hash',
+        'generated_state_hash',
     ];
 
     protected function casts(): array
@@ -46,6 +49,7 @@ class Invoice extends Model
             'period_month' => 'integer',
             'period_year' => 'integer',
             'total_amount' => 'integer',
+            'write_off_amount' => 'integer',
             'generated_at' => 'datetime',
             'status' => InvoiceStatus::class,
             'extracted_data' => 'array',
@@ -65,7 +69,31 @@ class Invoice extends Model
             if ($invoice->exists && $invoice->items()->exists()) {
                 $invoice->total_amount = $invoice->items()->sum('total');
             }
+
+            // Update current state hash
+            $invoice->current_state_hash = $invoice->computeStateHash();
         });
+    }
+
+    public function computeStateHash(): string
+    {
+        $items = $this->exists
+            ? $this->items()->orderBy('id')->get(['description', 'quantity', 'unit_price', 'total'])->toArray()
+            : [];
+
+        $state = [
+            'customer_id' => $this->customer_id,
+            'customer_name' => $this->customer_name,
+            'customer_address' => $this->customer_address,
+            'customer_tax_id' => $this->customer_tax_id,
+            'invoice_date' => $this->invoice_date?->format('Y-m-d'),
+            'due_date' => $this->due_date?->format('Y-m-d'),
+            'bank_account_id' => $this->bank_account_id,
+            'currency' => $this->currency,
+            'items' => $items,
+        ];
+
+        return hash('sha256', json_encode($state));
     }
 
     public function recalculateTotal(): void
@@ -155,7 +183,17 @@ class Invoice extends Model
 
     public function scopeFinalized(Builder $query): Builder
     {
-        return $query->where('status', InvoiceStatus::Finalized);
+        return $query->where('status', InvoiceStatus::ReadyToSend);
+    }
+
+    public function scopeAwaitingPayment(Builder $query): Builder
+    {
+        return $query->whereIn('status', [InvoiceStatus::Sent, InvoiceStatus::PartiallyPaid]);
+    }
+
+    public function scopePaid(Builder $query): Builder
+    {
+        return $query->where('status', InvoiceStatus::Paid);
     }
 
     public function scopeFailed(Builder $query): Builder
@@ -170,12 +208,73 @@ class Invoice extends Model
 
     public function isFinalized(): bool
     {
-        return $this->status === InvoiceStatus::Finalized;
+        return in_array($this->status, [
+            InvoiceStatus::ReadyToSend,
+            InvoiceStatus::Sent,
+            InvoiceStatus::PartiallyPaid,
+            InvoiceStatus::Paid,
+        ]);
+    }
+
+    public function isReadyToSend(): bool
+    {
+        return $this->status === InvoiceStatus::ReadyToSend;
+    }
+
+    public function isAwaitingPayment(): bool
+    {
+        return in_array($this->status, [InvoiceStatus::Sent, InvoiceStatus::PartiallyPaid]);
+    }
+
+    public function isPaid(): bool
+    {
+        return $this->status === InvoiceStatus::Paid;
+    }
+
+    public function isPartiallyPaid(): bool
+    {
+        return $this->status === InvoiceStatus::PartiallyPaid;
     }
 
     public function canBeFinalized(): bool
     {
         return $this->status->canBeFinalized();
+    }
+
+    public function canBeSent(): bool
+    {
+        return $this->status->canBeSent();
+    }
+
+    public function canRecordPayment(): bool
+    {
+        return $this->status->canRecordPayment();
+    }
+
+    public function canWriteOff(): bool
+    {
+        return $this->status->canWriteOff();
+    }
+
+    public function hasBeenModifiedSinceGeneration(): bool
+    {
+        // If no PDF has been generated yet, no modification to report
+        if (! $this->generated_at) {
+            return false;
+        }
+
+        // If we have hashes, compare them
+        if ($this->generated_state_hash) {
+            return $this->current_state_hash !== $this->generated_state_hash;
+        }
+
+        // Fallback for invoices generated before hash tracking was added
+        return $this->updated_at->gt($this->generated_at);
+    }
+
+    public function markStateAsGenerated(): void
+    {
+        $this->update(['generated_state_hash' => $this->current_state_hash]);
     }
 
     public function markAsExtracted(): void
@@ -190,7 +289,30 @@ class Invoice extends Model
 
     public function markAsFinalized(): void
     {
-        $this->update(['status' => InvoiceStatus::Finalized]);
+        $this->update(['status' => InvoiceStatus::ReadyToSend]);
+    }
+
+    public function markAsSent(): void
+    {
+        $this->update(['status' => InvoiceStatus::Sent]);
+    }
+
+    public function markAsPartiallyPaid(): void
+    {
+        $this->update(['status' => InvoiceStatus::PartiallyPaid]);
+    }
+
+    public function markAsPaid(): void
+    {
+        $this->update(['status' => InvoiceStatus::Paid]);
+    }
+
+    public function writeOff(int $amount): void
+    {
+        $this->update([
+            'write_off_amount' => $amount,
+            'status' => InvoiceStatus::Paid,
+        ]);
     }
 
     public function markAsFailed(string $message): void

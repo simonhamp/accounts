@@ -186,6 +186,7 @@ class InvoiceService
             'pdf_path' => $pathEs,
             'pdf_path_en' => $pathEn,
             'generated_at' => now(),
+            'generated_state_hash' => $invoice->current_state_hash,
         ]);
     }
 

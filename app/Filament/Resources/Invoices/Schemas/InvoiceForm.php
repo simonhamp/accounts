@@ -26,6 +26,24 @@ class InvoiceForm
     {
         return $schema
             ->components([
+                Placeholder::make('modification_warning')
+                    ->hiddenLabel()
+                    ->content(fn () => new HtmlString(
+                        '<div style="background-color: #fff7ed; border: 1px solid #fed7aa; border-radius: 0.5rem; padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem;">'.
+                        '<div style="display: flex; align-items: center; gap: 0.5rem; color: #9a3412;">'.
+                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style="width: 1.25rem; height: 1.25rem; flex-shrink: 0;">'.
+                        '<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd" />'.
+                        '</svg>'.
+                        '<span style="font-size: 0.875rem;">Invoice modified since PDF was generated</span>'.
+                        '</div>'.
+                        '<button type="button" wire:click="regeneratePdf" style="background-color: #ea580c; color: white; font-size: 0.75rem; font-weight: 500; padding: 0.375rem 0.75rem; border-radius: 0.375rem; border: none; cursor: pointer;">'.
+                        'Regenerate PDF'.
+                        '</button>'.
+                        '</div>'
+                    ))
+                    ->columnSpanFull()
+                    ->visible(fn ($record) => $record?->hasBeenModifiedSinceGeneration()),
+
                 Section::make('Original PDF')
                     ->components([
                         Placeholder::make('pdf_preview')
@@ -51,6 +69,11 @@ class InvoiceForm
                             ->label('Error')
                             ->content(fn ($record) => $record?->error_message)
                             ->visible(fn ($record) => $record?->status === InvoiceStatus::Failed),
+
+                        Placeholder::make('write_off_display')
+                            ->label('Write-off Amount')
+                            ->content(fn ($record) => number_format($record->write_off_amount / 100, 2).' '.$record->currency)
+                            ->visible(fn ($record) => $record?->write_off_amount > 0),
                     ])
                     ->visible(fn ($record) => $record !== null),
 

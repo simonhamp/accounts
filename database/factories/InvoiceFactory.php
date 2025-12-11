@@ -34,7 +34,7 @@ class InvoiceFactory extends Factory
             'customer_tax_id' => fake()->bothify('??######?'),
             'total_amount' => fake()->numberBetween(1000, 100000),
             'currency' => 'EUR',
-            'status' => InvoiceStatus::Finalized,
+            'status' => InvoiceStatus::ReadyToSend,
         ];
     }
 
@@ -88,6 +88,34 @@ class InvoiceFactory extends Factory
                     ],
                 ],
             ],
+        ]);
+    }
+
+    public function readyToSend(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => InvoiceStatus::ReadyToSend,
+        ]);
+    }
+
+    public function sent(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => InvoiceStatus::Sent,
+        ]);
+    }
+
+    public function partiallyPaid(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => InvoiceStatus::PartiallyPaid,
+        ]);
+    }
+
+    public function paid(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => InvoiceStatus::Paid,
         ]);
     }
 

@@ -8,6 +8,8 @@ use App\Filament\Resources\StripeTransactions\StripeTransactionResource;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Forms\Components\Radio;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 
@@ -19,6 +21,28 @@ class EditInvoice extends EditRecord
     {
         // Recalculate total from line items
         $this->record->recalculateTotal();
+    }
+
+    public function regeneratePdf(): void
+    {
+        try {
+            $invoiceService = app(InvoiceService::class);
+            $invoiceService->regeneratePdf($this->record);
+
+            $this->refreshFormData(['pdf_path', 'pdf_path_en', 'generated_at']);
+
+            Notification::make()
+                ->success()
+                ->title('PDFs regenerated')
+                ->body('Both Spanish and English PDFs have been regenerated.')
+                ->send();
+        } catch (\Exception $e) {
+            Notification::make()
+                ->danger()
+                ->title('Failed to regenerate PDFs')
+                ->body($e->getMessage())
+                ->send();
+        }
     }
 
     protected function getHeaderActions(): array
@@ -74,7 +98,7 @@ class EditInvoice extends EditRecord
                         Notification::make()
                             ->success()
                             ->title('Invoice finalized')
-                            ->body("Invoice {$this->record->invoice_number} has been finalized.")
+                            ->body("Invoice {$this->record->invoice_number} is now ready to send.")
                             ->send();
                     } catch (\Exception $e) {
                         Notification::make()
@@ -85,33 +109,89 @@ class EditInvoice extends EditRecord
                     }
                 }),
 
-            Action::make('regeneratePdf')
-                ->label('Regenerate PDF')
-                ->icon('heroicon-o-arrow-path')
-                ->color('warning')
+            Action::make('markSent')
+                ->label('Mark as Sent')
+                ->icon('heroicon-o-paper-airplane')
+                ->color('info')
                 ->requiresConfirmation()
-                ->modalHeading('Regenerate PDF')
-                ->modalDescription('This will regenerate both Spanish and English PDFs with the current invoice data.')
-                ->visible(fn () => $this->record->isFinalized())
+                ->modalHeading('Mark Invoice as Sent')
+                ->modalDescription('This will mark the invoice as sent and awaiting payment.')
+                ->visible(fn () => $this->record->canBeSent())
                 ->action(function () {
-                    try {
-                        $invoiceService = app(InvoiceService::class);
-                        $invoiceService->regeneratePdf($this->record);
+                    $this->record->markAsSent();
 
-                        $this->refreshFormData(['pdf_path', 'pdf_path_en', 'generated_at']);
+                    $this->refreshFormData(['status']);
+
+                    Notification::make()
+                        ->success()
+                        ->title('Invoice marked as sent')
+                        ->body('The invoice is now awaiting payment.')
+                        ->send();
+                }),
+
+            Action::make('recordPayment')
+                ->label('Paid')
+                ->icon('heroicon-o-banknotes')
+                ->color('success')
+                ->visible(fn () => $this->record->canRecordPayment())
+                ->form([
+                    Radio::make('payment_type')
+                        ->label('Payment received')
+                        ->options([
+                            'full' => 'Paid in full',
+                            'partial' => 'Partially paid',
+                        ])
+                        ->default('full')
+                        ->required(),
+                ])
+                ->action(function (array $data) {
+                    if ($data['payment_type'] === 'full') {
+                        $this->record->markAsPaid();
 
                         Notification::make()
                             ->success()
-                            ->title('PDFs regenerated')
-                            ->body('Both Spanish and English PDFs have been regenerated.')
+                            ->title('Invoice marked as paid')
+                            ->body('The invoice has been marked as fully paid.')
                             ->send();
-                    } catch (\Exception $e) {
+                    } else {
+                        $this->record->markAsPartiallyPaid();
+
                         Notification::make()
-                            ->danger()
-                            ->title('Failed to regenerate PDFs')
-                            ->body($e->getMessage())
+                            ->success()
+                            ->title('Partial payment recorded')
+                            ->body('The invoice has been marked as partially paid.')
                             ->send();
                     }
+
+                    $this->refreshFormData(['status']);
+                }),
+
+            Action::make('writeOff')
+                ->label('Write-off')
+                ->icon('heroicon-o-x-circle')
+                ->color('danger')
+                ->visible(fn () => $this->record->canWriteOff())
+                ->form([
+                    TextInput::make('write_off_amount')
+                        ->label('Amount to write off (cents)')
+                        ->helperText('Enter the amount in cents that will not be collected')
+                        ->numeric()
+                        ->required()
+                        ->minValue(1),
+                ])
+                ->requiresConfirmation()
+                ->modalHeading('Write Off Unpaid Amount')
+                ->modalDescription('This will close the invoice and record the write-off amount.')
+                ->action(function (array $data) {
+                    $this->record->writeOff((int) $data['write_off_amount']);
+
+                    $this->refreshFormData(['status', 'write_off_amount']);
+
+                    Notification::make()
+                        ->success()
+                        ->title('Amount written off')
+                        ->body('The invoice has been closed with the write-off recorded.')
+                        ->send();
                 }),
 
             Action::make('downloadPdfEs')

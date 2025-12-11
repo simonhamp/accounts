@@ -31,7 +31,7 @@ it('calculates net income correctly for a single currency', function () {
         'invoice_date' => now(),
         'total_amount' => 100000, // €1000
         'currency' => 'EUR',
-        'status' => InvoiceStatus::Finalized,
+        'status' => InvoiceStatus::ReadyToSend,
     ]);
 
     // Create other income
@@ -63,7 +63,7 @@ it('shows separate stats for different currencies', function () {
         'invoice_date' => now(),
         'total_amount' => 100000,
         'currency' => 'EUR',
-        'status' => InvoiceStatus::Finalized,
+        'status' => InvoiceStatus::ReadyToSend,
     ]);
 
     Invoice::factory()->create([
@@ -71,7 +71,7 @@ it('shows separate stats for different currencies', function () {
         'invoice_date' => now(),
         'total_amount' => 200000,
         'currency' => 'USD',
-        'status' => InvoiceStatus::Finalized,
+        'status' => InvoiceStatus::ReadyToSend,
     ]);
 
     Livewire::test(NetIncomeStats::class)
@@ -88,7 +88,7 @@ it('excludes non-finalized invoices from calculations', function () {
         'invoice_date' => now(),
         'total_amount' => 100000,
         'currency' => 'EUR',
-        'status' => InvoiceStatus::Finalized,
+        'status' => InvoiceStatus::ReadyToSend,
     ]);
 
     // Pending invoice - should NOT be counted
@@ -114,7 +114,7 @@ it('respects year filter', function () {
         'invoice_date' => now(),
         'total_amount' => 100000,
         'currency' => 'EUR',
-        'status' => InvoiceStatus::Finalized,
+        'status' => InvoiceStatus::ReadyToSend,
     ]);
 
     // Last year invoice - should not appear when filtering current year
@@ -123,7 +123,7 @@ it('respects year filter', function () {
         'invoice_date' => now()->subYear(),
         'total_amount' => 200000,
         'currency' => 'EUR',
-        'status' => InvoiceStatus::Finalized,
+        'status' => InvoiceStatus::ReadyToSend,
     ]);
 
     Livewire::test(NetIncomeStats::class)
@@ -150,7 +150,7 @@ it('displays breakdown description', function () {
         'invoice_date' => now(),
         'total_amount' => 100000,
         'currency' => 'EUR',
-        'status' => InvoiceStatus::Finalized,
+        'status' => InvoiceStatus::ReadyToSend,
     ]);
 
     OtherIncome::factory()->create([

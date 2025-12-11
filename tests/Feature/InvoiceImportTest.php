@@ -18,7 +18,7 @@ describe('Invoice Status', function () {
     it('creates invoices with finalized status by default', function () {
         $invoice = Invoice::factory()->create();
 
-        expect($invoice->status)->toBe(InvoiceStatus::Finalized);
+        expect($invoice->status)->toBe(InvoiceStatus::ReadyToSend);
         expect($invoice->isFinalized())->toBeTrue();
         expect($invoice->isPending())->toBeFalse();
     });
@@ -131,7 +131,7 @@ describe('Invoice Finalization', function () {
 
         $invoice->refresh();
         expect($invoice->invoice_number)->toBe('TEST-00001');
-        expect($invoice->status)->toBe(InvoiceStatus::Finalized);
+        expect($invoice->status)->toBe(InvoiceStatus::ReadyToSend);
         expect($person->fresh()->next_invoice_number)->toBe(2);
     });
 
@@ -541,5 +541,122 @@ describe('Invoice Bank Account Relationship', function () {
 
         expect($invoiceWithPaymentDetails->hasPaymentDetails())->toBeTrue();
         expect($invoiceWithoutPaymentDetails->hasPaymentDetails())->toBeFalse();
+    });
+});
+
+describe('Invoice Modification Detection', function () {
+    it('computes state hash on save', function () {
+        $invoice = Invoice::factory()->create();
+
+        expect($invoice->current_state_hash)->not->toBeNull();
+        expect($invoice->current_state_hash)->toHaveLength(64);
+    });
+
+    it('detects no modification when not yet generated', function () {
+        $invoice = Invoice::factory()->create([
+            'generated_at' => null,
+            'generated_state_hash' => null,
+        ]);
+
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeFalse();
+    });
+
+    it('detects no modification when hashes match', function () {
+        $invoice = Invoice::factory()->create([
+            'generated_at' => now(),
+        ]);
+        $invoice->update(['generated_state_hash' => $invoice->current_state_hash]);
+
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeFalse();
+    });
+
+    it('detects modification when customer name changes', function () {
+        $invoice = Invoice::factory()->create([
+            'customer_name' => 'Original Customer',
+            'generated_at' => now(),
+        ]);
+        $invoice->update(['generated_state_hash' => $invoice->current_state_hash]);
+
+        $invoice->update(['customer_name' => 'Updated Customer']);
+
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
+    });
+
+    it('detects modification when invoice date changes', function () {
+        $invoice = Invoice::factory()->create([
+            'invoice_date' => '2025-01-01',
+            'generated_at' => now(),
+        ]);
+        $invoice->update(['generated_state_hash' => $invoice->current_state_hash]);
+
+        $invoice->update(['invoice_date' => '2025-02-01']);
+
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
+    });
+
+    it('detects modification when line items change', function () {
+        $person = Person::factory()->create();
+        $invoice = Invoice::factory()->create([
+            'person_id' => $person->id,
+            'generated_at' => now(),
+        ]);
+
+        $invoice->items()->create([
+            'description' => 'Test Item',
+            'quantity' => 1,
+            'unit_price' => 1000,
+            'total' => 1000,
+        ]);
+
+        $invoice->refresh();
+        $invoice->update(['generated_state_hash' => $invoice->computeStateHash()]);
+
+        // Add another item
+        $invoice->items()->create([
+            'description' => 'New Item',
+            'quantity' => 1,
+            'unit_price' => 2000,
+            'total' => 2000,
+        ]);
+
+        $invoice->save();
+        $invoice->refresh();
+
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
+    });
+
+    it('falls back to timestamp comparison for legacy invoices', function () {
+        $invoice = Invoice::factory()->create([
+            'generated_at' => now()->subHour(),
+            'generated_state_hash' => null,
+        ]);
+
+        // updated_at is after generated_at, so should detect modification
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
+    });
+
+    it('sets generated_state_hash when PDF is generated', function () {
+        Storage::fake('local');
+
+        $person = Person::factory()->create([
+            'invoice_prefix' => 'HASH',
+            'next_invoice_number' => 1,
+        ]);
+
+        $invoice = Invoice::factory()->reviewed()->create([
+            'person_id' => $person->id,
+            'invoice_number' => null,
+        ]);
+
+        expect($invoice->generated_state_hash)->toBeNull();
+
+        $service = app(InvoiceService::class);
+        $service->finalizeImportedInvoice($invoice);
+
+        $invoice->refresh();
+
+        expect($invoice->generated_state_hash)->not->toBeNull();
+        expect($invoice->generated_state_hash)->toBe($invoice->current_state_hash);
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeFalse();
     });
 });
