@@ -316,14 +316,7 @@
         <div class="amount-due">
             <div class="label">Importe a Pagar</div>
             <div class="amount">
-                @php
-                    $symbol = match($invoice->currency) {
-                        'USD' => '$',
-                        'GBP' => '£',
-                        default => '€',
-                    };
-                @endphp
-                {{ $symbol }}{{ number_format($invoice->total_amount / 100, 2, ',', '.') }} {{ $invoice->currency }}
+                {{ number_format($invoice->total_amount / 100, 2, ',', '.') }} {{ $invoice->currency }}
             </div>
             @if($invoice->due_date)
                 <div class="label" style="margin-top: 10px;">Vencimiento: {{ $invoice->due_date->format('d/m/Y') }}</div>
