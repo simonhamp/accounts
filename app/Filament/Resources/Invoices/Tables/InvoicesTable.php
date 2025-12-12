@@ -191,6 +191,19 @@ class InvoicesTable
                                 ->body("Invoice {$record->invoice_number} marked as {$status}.")
                                 ->send();
                         }),
+                    Action::make('previewPdf')
+                        ->label('Preview PDF')
+                        ->icon('heroicon-o-document')
+                        ->color('gray')
+                        ->visible(fn ($record) => $record->isFinalized() && $record->pdf_path_en)
+                        ->modalHeading(fn ($record) => "Invoice {$record->invoice_number}")
+                        ->modalSubmitAction(false)
+                        ->modalCancelActionLabel('Close')
+                        ->modalWidth('7xl')
+                        ->modalContent(fn ($record) => view('filament.actions.pdf-preview', [
+                            'url' => route('invoices.show-pdf', ['invoice' => $record, 'language' => 'en']),
+                            'isImage' => false,
+                        ])),
                     Action::make('download')
                         ->label('Download PDF')
                         ->icon('heroicon-o-arrow-down-tray')

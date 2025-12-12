@@ -19,6 +19,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Storage;
 
 class BillsTable
 {
@@ -99,6 +100,24 @@ class BillsTable
             ->recordActions([
                 ActionGroup::make([
                     EditAction::make(),
+                    Action::make('previewAttachment')
+                        ->label('Preview Attachment')
+                        ->icon('heroicon-o-document')
+                        ->color('gray')
+                        ->visible(fn ($record) => $record->original_file_path && Storage::disk('local')->exists($record->original_file_path))
+                        ->modalHeading(fn ($record) => $record->bill_number ? "Bill {$record->bill_number}" : 'Bill Attachment')
+                        ->modalSubmitAction(false)
+                        ->modalCancelActionLabel('Close')
+                        ->modalWidth('7xl')
+                        ->modalContent(function ($record) {
+                            $extension = strtolower(pathinfo($record->original_file_path, PATHINFO_EXTENSION));
+                            $isImage = in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp']);
+
+                            return view('filament.actions.pdf-preview', [
+                                'url' => route('bills.original-pdf', $record),
+                                'isImage' => $isImage,
+                            ]);
+                        }),
                     Action::make('markPaid')
                         ->label('Mark as Paid')
                         ->icon('heroicon-o-check-circle')

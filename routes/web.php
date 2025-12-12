@@ -41,6 +41,10 @@ Route::middleware(['auth'])->group(function () {
         ->where('language', 'es|en')
         ->name('invoices.download-pdf');
 
+    Route::get('invoices/{invoice}/show-pdf/{language?}', [InvoiceController::class, 'showPdf'])
+        ->where('language', 'es|en')
+        ->name('invoices.show-pdf');
+
     Route::get('bills/{bill}/original-pdf', [BillController::class, 'showOriginalPdf'])
         ->name('bills.original-pdf');
 
