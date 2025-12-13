@@ -73,6 +73,8 @@ class RecordsController extends Controller
 
     protected function getRecords(Person $person, int $year): Collection
     {
+        $locale = app()->getLocale();
+
         // Get invoices (income)
         $invoices = Invoice::where('person_id', $person->id)
             ->whereYear('invoice_date', $year)
@@ -85,7 +87,7 @@ class RecordsController extends Controller
                 'amount' => $invoice->total_amount,
                 'currency' => $invoice->currency,
                 'is_income' => true,
-                'download_url' => $invoice->pdf_path ? route('invoices.download-pdf', ['invoice' => $invoice, 'language' => 'en']) : null,
+                'download_url' => $invoice->pdf_path ? route('invoices.download-pdf', ['invoice' => $invoice, 'language' => $locale]) : null,
                 'status' => $invoice->status->label(),
             ]);
 

@@ -8,7 +8,7 @@
             <flux:sidebar.toggle class="lg:hidden" icon="x-mark" />
 
             <flux:navlist variant="outline">
-                <flux:navlist.group :heading="__('People')" class="grid">
+                <flux:navlist.group :heading="__('records.people')" class="grid">
                     @foreach(\App\Models\Person::orderBy('name')->get() as $person)
                         <flux:navlist.item
                             icon="user"
@@ -17,6 +17,19 @@
                             wire:navigate
                         >{{ $person->name }}</flux:navlist.item>
                     @endforeach
+                </flux:navlist.group>
+
+                <flux:navlist.group :heading="__('records.language')" class="grid mt-4">
+                    <flux:navlist.item
+                        icon="flag"
+                        :href="route('locale.switch', ['locale' => 'en'])"
+                        :current="app()->getLocale() === 'en'"
+                    >{{ __('records.english') }}</flux:navlist.item>
+                    <flux:navlist.item
+                        icon="flag"
+                        :href="route('locale.switch', ['locale' => 'es'])"
+                        :current="app()->getLocale() === 'es'"
+                    >{{ __('records.spanish') }}</flux:navlist.item>
                 </flux:navlist.group>
             </flux:navlist>
 

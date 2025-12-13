@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\BillController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\OtherIncomeController;
 use App\Http\Controllers\RecordsController;
+use App\Http\Controllers\RecordsDownloadController;
 use App\Livewire\Settings\Appearance;
 use App\Livewire\Settings\Password;
 use App\Livewire\Settings\Profile;
@@ -27,6 +29,14 @@ Route::middleware(['auth'])->group(function () {
     Route::get('records/{person?}/{year?}', [RecordsController::class, 'index'])
         ->where(['person' => '[0-9]+', 'year' => '[0-9]{4}'])
         ->name('records.index');
+
+    Route::get('records/{person}/{year}/download', [RecordsDownloadController::class, 'downloadAll'])
+        ->where(['person' => '[0-9]+', 'year' => '[0-9]{4}'])
+        ->name('records.download');
+
+    Route::get('locale/{locale}', [LocaleController::class, 'switch'])
+        ->where('locale', 'en|es')
+        ->name('locale.switch');
 
     Route::get('settings/two-factor', TwoFactor::class)
         ->middleware(
