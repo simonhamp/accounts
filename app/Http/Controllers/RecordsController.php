@@ -67,6 +67,7 @@ class RecordsController extends Controller
             ->unique()
             ->filter()
             ->map(fn ($year) => (int) $year)
+            ->filter(fn ($year) => $year >= 2023)
             ->sortDesc()
             ->values();
     }
