@@ -33,6 +33,42 @@
                                 <p class="text-zinc-500 dark:text-zinc-400">No records found for {{ $selectedYear }}.</p>
                             </div>
                         @else
+                            @php
+                                $totals = $records->groupBy('currency')->map(function ($items, $currency) {
+                                    $income = $items->where('is_income', true)->sum('amount');
+                                    $outgoing = $items->where('is_income', false)->sum('amount');
+                                    return [
+                                        'income' => $income,
+                                        'outgoing' => $outgoing,
+                                        'net' => $income - $outgoing,
+                                    ];
+                                });
+                            @endphp
+
+                            <div class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                @foreach($totals as $currency => $total)
+                                    <div class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 p-4">
+                                        <h3 class="text-lg font-medium text-zinc-900 dark:text-white mb-3">{{ $currency }} Summary</h3>
+                                        <dl class="space-y-2">
+                                            <div class="flex justify-between">
+                                                <dt class="text-sm text-zinc-500 dark:text-zinc-400">Income</dt>
+                                                <dd class="text-sm font-medium text-green-600 dark:text-green-400">+{{ number_format($total['income'] / 100, 2) }}</dd>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <dt class="text-sm text-zinc-500 dark:text-zinc-400">Outgoing</dt>
+                                                <dd class="text-sm font-medium text-red-600 dark:text-red-400">-{{ number_format($total['outgoing'] / 100, 2) }}</dd>
+                                            </div>
+                                            <div class="flex justify-between pt-2 border-t border-zinc-200 dark:border-zinc-700">
+                                                <dt class="text-sm font-medium text-zinc-900 dark:text-white">Net</dt>
+                                                <dd class="text-sm font-bold {{ $total['net'] >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' }}">
+                                                    {{ $total['net'] >= 0 ? '+' : '' }}{{ number_format($total['net'] / 100, 2) }}
+                                                </dd>
+                                            </div>
+                                        </dl>
+                                    </div>
+                                @endforeach
+                            </div>
+
                             <div class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
                                 <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700">
                                     <thead class="bg-zinc-50 dark:bg-zinc-800">
@@ -45,9 +81,6 @@
                                             </th>
                                             <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                                                 Description
-                                            </th>
-                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
-                                                Status
                                             </th>
                                             <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                                                 Amount
@@ -81,9 +114,6 @@
                                                 <td class="px-6 py-4 text-sm text-zinc-900 dark:text-zinc-100">
                                                     {{ $record['description'] }}
                                                 </td>
-                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-zinc-500 dark:text-zinc-400">
-                                                    {{ $record['status'] }}
-                                                </td>
                                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium {{ $record['is_income'] ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' }}">
                                                     {{ $record['is_income'] ? '+' : '-' }}{{ number_format($record['amount'] / 100, 2) }} {{ $record['currency'] }}
                                                 </td>
@@ -106,42 +136,6 @@
                                         @endforeach
                                     </tbody>
                                 </table>
-                            </div>
-
-                            @php
-                                $totals = $records->groupBy('currency')->map(function ($items, $currency) {
-                                    $income = $items->where('is_income', true)->sum('amount');
-                                    $outgoing = $items->where('is_income', false)->sum('amount');
-                                    return [
-                                        'income' => $income,
-                                        'outgoing' => $outgoing,
-                                        'net' => $income - $outgoing,
-                                    ];
-                                });
-                            @endphp
-
-                            <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-                                @foreach($totals as $currency => $total)
-                                    <div class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 p-4">
-                                        <h3 class="text-lg font-medium text-zinc-900 dark:text-white mb-3">{{ $currency }} Summary</h3>
-                                        <dl class="space-y-2">
-                                            <div class="flex justify-between">
-                                                <dt class="text-sm text-zinc-500 dark:text-zinc-400">Income</dt>
-                                                <dd class="text-sm font-medium text-green-600 dark:text-green-400">+{{ number_format($total['income'] / 100, 2) }}</dd>
-                                            </div>
-                                            <div class="flex justify-between">
-                                                <dt class="text-sm text-zinc-500 dark:text-zinc-400">Outgoing</dt>
-                                                <dd class="text-sm font-medium text-red-600 dark:text-red-400">-{{ number_format($total['outgoing'] / 100, 2) }}</dd>
-                                            </div>
-                                            <div class="flex justify-between pt-2 border-t border-zinc-200 dark:border-zinc-700">
-                                                <dt class="text-sm font-medium text-zinc-900 dark:text-white">Net</dt>
-                                                <dd class="text-sm font-bold {{ $total['net'] >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' }}">
-                                                    {{ $total['net'] >= 0 ? '+' : '' }}{{ number_format($total['net'] / 100, 2) }}
-                                                </dd>
-                                            </div>
-                                        </dl>
-                                    </div>
-                                @endforeach
                             </div>
                         @endif
                     @endif

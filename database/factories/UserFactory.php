@@ -56,4 +56,24 @@ class UserFactory extends Factory
             'two_factor_confirmed_at' => null,
         ]);
     }
+
+    /**
+     * Indicate that the user is an admin.
+     */
+    public function admin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_admin' => true,
+        ]);
+    }
+
+    /**
+     * Indicate that the user is a viewer (non-admin).
+     */
+    public function viewer(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_admin' => false,
+        ]);
+    }
 }

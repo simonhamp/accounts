@@ -13,7 +13,6 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
-use Illuminate\Support\Facades\Auth;
 
 class UserResource extends Resource
 {
@@ -26,11 +25,9 @@ class UserResource extends Resource
         return 'Settings';
     }
 
-    public static function canAccess(): bool
+    public static function getNavigationSort(): ?int
     {
-        $adminEmail = config('app.admin_email');
-
-        return $adminEmail && Auth::user()?->email === $adminEmail;
+        return 100;
     }
 
     public static function form(Schema $schema): Schema

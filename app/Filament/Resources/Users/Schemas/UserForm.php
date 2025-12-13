@@ -2,11 +2,12 @@
 
 namespace App\Filament\Resources\Users\Schemas;
 
-use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 
 class UserForm
 {
@@ -21,34 +22,28 @@ class UserForm
                             ->maxLength(255),
 
                         TextInput::make('email')
-                            ->label('Email address')
                             ->email()
                             ->required()
                             ->unique(ignoreRecord: true)
                             ->maxLength(255),
 
-                        DateTimePicker::make('email_verified_at')
-                            ->label('Email Verified At')
-                            ->native(false),
-                    ])
-                    ->columns(2),
-
-                Section::make('Password')
-                    ->components([
                         TextInput::make('password')
                             ->password()
-                            ->dehydrateStateUsing(fn (string $state): string => Hash::make($state))
-                            ->dehydrated(fn (?string $state): bool => filled($state))
-                            ->required(fn (string $operation): bool => $operation === 'create')
-                            ->confirmed()
-                            ->maxLength(255),
-
-                        TextInput::make('password_confirmation')
-                            ->password()
-                            ->requiredWith('password')
-                            ->maxLength(255),
+                            ->dehydrateStateUsing(fn ($state) => Hash::make($state))
+                            ->dehydrated(fn ($state) => filled($state))
+                            ->required(fn ($record) => $record === null)
+                            ->rule(Password::default())
+                            ->helperText(fn ($record) => $record ? 'Leave blank to keep current password' : null),
                     ])
                     ->columns(2),
+
+                Section::make('Permissions')
+                    ->components([
+                        Toggle::make('is_admin')
+                            ->label('Administrator')
+                            ->helperText('Administrators can access the admin panel and manage all data. Non-admins can only view the records area.')
+                            ->default(false),
+                    ]),
             ]);
     }
 }
