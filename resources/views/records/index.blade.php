@@ -45,6 +45,7 @@
                                 });
                             @endphp
 
+                            @if($selectedYear >= 2023)
                             <div class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                                 @foreach($totals as $currency => $total)
                                     <div class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 p-4">
@@ -68,6 +69,7 @@
                                     </div>
                                 @endforeach
                             </div>
+                            @endif
 
                             <div class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
                                 <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700">
