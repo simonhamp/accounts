@@ -6,8 +6,10 @@ use App\Filament\Resources\Bills\BillResource;
 use App\Filament\Resources\Suppliers\SupplierResource;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Support\Facades\Storage;
 
 class EditBill extends EditRecord
 {
@@ -84,6 +86,56 @@ class EditBill extends EditRecord
                 ->color('gray')
                 ->url(fn () => SupplierResource::getUrl('edit', ['record' => $this->record->supplier]))
                 ->visible(fn () => $this->record->supplier_id !== null),
+
+            Action::make('uploadAttachment')
+                ->label('Upload Attachment')
+                ->icon('heroicon-o-arrow-up-tray')
+                ->color('gray')
+                ->modalHeading('Upload Attachment')
+                ->modalDescription('Upload a new attachment for this bill. This will replace any existing attachment.')
+                ->form([
+                    FileUpload::make('attachment')
+                        ->label('Attachment')
+                        ->disk('local')
+                        ->directory('bills')
+                        ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+                        ->maxSize(10240)
+                        ->required(),
+                ])
+                ->action(function (array $data) {
+                    $attachment = $data['attachment'] ?? null;
+
+                    $newFilePath = is_array($attachment)
+                        ? collect($attachment)->first()
+                        : $attachment;
+
+                    if (! $newFilePath) {
+                        Notification::make()
+                            ->danger()
+                            ->title('Upload failed')
+                            ->body('No file was uploaded.')
+                            ->send();
+
+                        return;
+                    }
+
+                    // Delete old file if it exists
+                    if ($this->record->original_file_path && Storage::disk('local')->exists($this->record->original_file_path)) {
+                        Storage::disk('local')->delete($this->record->original_file_path);
+                    }
+
+                    $this->record->update([
+                        'original_file_path' => $newFilePath,
+                    ]);
+
+                    Notification::make()
+                        ->success()
+                        ->title('Attachment uploaded')
+                        ->body('The attachment has been uploaded successfully.')
+                        ->send();
+
+                    $this->redirect(BillResource::getUrl('edit', ['record' => $this->record]));
+                }),
 
             DeleteAction::make(),
         ];

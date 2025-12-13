@@ -19,8 +19,21 @@ class BillController extends Controller
         }
 
         $filePath = Storage::disk('local')->path($bill->original_file_path);
-        $mimeType = mime_content_type($filePath) ?: 'application/octet-stream';
+        $extension = strtolower(pathinfo($bill->original_file_path, PATHINFO_EXTENSION));
 
-        return response()->file($filePath, ['Content-Type' => $mimeType]);
+        // Determine MIME type based on extension for reliability
+        $mimeType = match ($extension) {
+            'pdf' => 'application/pdf',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+            default => mime_content_type($filePath) ?: 'application/octet-stream',
+        };
+
+        return response()->file($filePath, [
+            'Content-Type' => $mimeType,
+            'Content-Disposition' => 'inline',
+        ]);
     }
 }
