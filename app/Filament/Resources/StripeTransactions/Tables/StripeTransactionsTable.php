@@ -8,6 +8,7 @@ use App\Models\StripeAccount;
 use App\Models\StripeTransaction;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -129,102 +130,104 @@ class StripeTransactionsTable
                     }),
             ])
             ->recordActions([
-                EditAction::make(),
-                Action::make('generate_invoice')
-                    ->label('Generate Invoice')
-                    ->icon('heroicon-o-document-text')
-                    ->requiresConfirmation()
-                    ->color('success')
-                    ->visible(fn (StripeTransaction $record) => $record->canGenerateInvoice())
-                    ->action(function (StripeTransaction $record) {
-                        $invoiceService = app(InvoiceService::class);
+                ActionGroup::make([
+                    EditAction::make(),
+                    Action::make('generate_invoice')
+                        ->label('Generate Invoice')
+                        ->icon('heroicon-o-document-text')
+                        ->requiresConfirmation()
+                        ->color('success')
+                        ->visible(fn (StripeTransaction $record) => $record->canGenerateInvoice())
+                        ->action(function (StripeTransaction $record) {
+                            $invoiceService = app(InvoiceService::class);
 
-                        try {
-                            $invoice = $invoiceService->generateInvoiceForTransaction($record);
+                            try {
+                                $invoice = $invoiceService->generateInvoiceForTransaction($record);
+
+                                Notification::make()
+                                    ->success()
+                                    ->title('Invoice Generated')
+                                    ->body("Invoice {$invoice->invoice_number} has been created successfully.")
+                                    ->send();
+                            } catch (\Exception $e) {
+                                Notification::make()
+                                    ->danger()
+                                    ->title('Failed to Generate Invoice')
+                                    ->body($e->getMessage())
+                                    ->send();
+                            }
+                        }),
+                    Action::make('convert_to_other_income')
+                        ->label('Other Income')
+                        ->icon('heroicon-o-banknotes')
+                        ->requiresConfirmation()
+                        ->modalHeading('Convert to Other Income')
+                        ->modalDescription('This will create an Other Income record. Use this for payments without formal invoices.')
+                        ->color('warning')
+                        ->visible(fn (StripeTransaction $record) => $record->canConvertToOtherIncome())
+                        ->action(function (StripeTransaction $record) {
+                            try {
+                                $record->load('stripeAccount.person');
+                                $person = $record->stripeAccount->person;
+
+                                OtherIncome::create([
+                                    'person_id' => $person->id,
+                                    'stripe_transaction_id' => $record->id,
+                                    'income_date' => $record->transaction_date,
+                                    'description' => $record->description,
+                                    'amount' => $record->amount,
+                                    'currency' => $record->currency,
+                                    'status' => OtherIncomeStatus::Paid,
+                                    'amount_paid' => $record->amount,
+                                    'paid_at' => $record->transaction_date,
+                                    'reference' => $record->stripe_transaction_id,
+                                    'notes' => "Converted from Stripe transaction: {$record->stripe_transaction_id}",
+                                ]);
+
+                                Notification::make()
+                                    ->success()
+                                    ->title('Converted to Other Income')
+                                    ->body('The transaction has been recorded as Other Income.')
+                                    ->send();
+                            } catch (\Exception $e) {
+                                Notification::make()
+                                    ->danger()
+                                    ->title('Failed to Convert')
+                                    ->body($e->getMessage())
+                                    ->send();
+                            }
+                        }),
+                    Action::make('ignore')
+                        ->label('Ignore')
+                        ->icon('heroicon-o-eye-slash')
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalHeading('Ignore Transaction')
+                        ->modalDescription('This transaction will be excluded from invoice generation.')
+                        ->visible(fn (StripeTransaction $record) => ! $record->isIgnored() && ! $record->isProcessed())
+                        ->action(function (StripeTransaction $record) {
+                            $record->markAsIgnored();
 
                             Notification::make()
                                 ->success()
-                                ->title('Invoice Generated')
-                                ->body("Invoice {$invoice->invoice_number} has been created successfully.")
+                                ->title('Transaction Ignored')
                                 ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->danger()
-                                ->title('Failed to Generate Invoice')
-                                ->body($e->getMessage())
-                                ->send();
-                        }
-                    }),
-                Action::make('convert_to_other_income')
-                    ->label('Other Income')
-                    ->icon('heroicon-o-banknotes')
-                    ->requiresConfirmation()
-                    ->modalHeading('Convert to Other Income')
-                    ->modalDescription('This will create an Other Income record. Use this for payments without formal invoices.')
-                    ->color('warning')
-                    ->visible(fn (StripeTransaction $record) => $record->canConvertToOtherIncome())
-                    ->action(function (StripeTransaction $record) {
-                        try {
-                            $record->load('stripeAccount.person');
-                            $person = $record->stripeAccount->person;
-
-                            OtherIncome::create([
-                                'person_id' => $person->id,
-                                'stripe_transaction_id' => $record->id,
-                                'income_date' => $record->transaction_date,
-                                'description' => $record->description,
-                                'amount' => $record->amount,
-                                'currency' => $record->currency,
-                                'status' => OtherIncomeStatus::Paid,
-                                'amount_paid' => $record->amount,
-                                'paid_at' => $record->transaction_date,
-                                'reference' => $record->stripe_transaction_id,
-                                'notes' => "Converted from Stripe transaction: {$record->stripe_transaction_id}",
-                            ]);
+                        }),
+                    Action::make('unignore')
+                        ->label('Unignore')
+                        ->icon('heroicon-o-eye')
+                        ->color('warning')
+                        ->visible(fn (StripeTransaction $record) => $record->isIgnored())
+                        ->action(function (StripeTransaction $record) {
+                            $record->updateCompleteStatus();
 
                             Notification::make()
                                 ->success()
-                                ->title('Converted to Other Income')
-                                ->body('The transaction has been recorded as Other Income.')
+                                ->title('Transaction Restored')
+                                ->body('Status updated based on completeness.')
                                 ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->danger()
-                                ->title('Failed to Convert')
-                                ->body($e->getMessage())
-                                ->send();
-                        }
-                    }),
-                Action::make('ignore')
-                    ->label('Ignore')
-                    ->icon('heroicon-o-eye-slash')
-                    ->color('gray')
-                    ->requiresConfirmation()
-                    ->modalHeading('Ignore Transaction')
-                    ->modalDescription('This transaction will be excluded from invoice generation.')
-                    ->visible(fn (StripeTransaction $record) => ! $record->isIgnored() && ! $record->isProcessed())
-                    ->action(function (StripeTransaction $record) {
-                        $record->markAsIgnored();
-
-                        Notification::make()
-                            ->success()
-                            ->title('Transaction Ignored')
-                            ->send();
-                    }),
-                Action::make('unignore')
-                    ->label('Unignore')
-                    ->icon('heroicon-o-eye')
-                    ->color('warning')
-                    ->visible(fn (StripeTransaction $record) => $record->isIgnored())
-                    ->action(function (StripeTransaction $record) {
-                        $record->updateCompleteStatus();
-
-                        Notification::make()
-                            ->success()
-                            ->title('Transaction Restored')
-                            ->body('Status updated based on completeness.')
-                            ->send();
-                    }),
+                        }),
+                ]),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
