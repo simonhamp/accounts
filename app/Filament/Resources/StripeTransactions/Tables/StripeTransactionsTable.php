@@ -2,7 +2,10 @@
 
 namespace App\Filament\Resources\StripeTransactions\Tables;
 
+use App\Enums\OtherIncomeStatus;
+use App\Models\OtherIncome;
 use App\Models\StripeAccount;
+use App\Models\StripeTransaction;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -11,7 +14,6 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Notifications\Notification;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -57,10 +59,24 @@ class StripeTransactionsTable
                         'ignored' => 'Ignored',
                         default => ucfirst($state),
                     }),
-                IconColumn::make('invoiced')
-                    ->label('Invoiced')
-                    ->boolean()
-                    ->getStateUsing(fn ($record) => $record->isInvoiced()),
+                TextColumn::make('processed')
+                    ->label('Processed')
+                    ->badge()
+                    ->getStateUsing(function (StripeTransaction $record): ?string {
+                        if ($record->isInvoiced()) {
+                            return 'Invoiced';
+                        }
+                        if ($record->isOtherIncome()) {
+                            return 'Other Income';
+                        }
+
+                        return null;
+                    })
+                    ->color(fn (?string $state): string => match ($state) {
+                        'Invoiced' => 'success',
+                        'Other Income' => 'warning',
+                        default => 'gray',
+                    }),
                 TextColumn::make('transaction_date')
                     ->dateTime()
                     ->sortable(),
@@ -83,14 +99,14 @@ class StripeTransactionsTable
                         'ready' => 'Ready',
                         'ignored' => 'Ignored',
                     ]),
-                TernaryFilter::make('invoiced')
-                    ->label('Invoiced')
+                TernaryFilter::make('processed')
+                    ->label('Processed')
                     ->placeholder('All transactions')
-                    ->trueLabel('Invoiced only')
-                    ->falseLabel('Not invoiced only')
+                    ->trueLabel('Processed only')
+                    ->falseLabel('Not processed only')
                     ->queries(
-                        true: fn (Builder $query) => $query->whereHas('invoiceItem'),
-                        false: fn (Builder $query) => $query->whereDoesntHave('invoiceItem'),
+                        true: fn (Builder $query) => $query->where(fn (Builder $q) => $q->whereHas('invoiceItem')->orWhereHas('otherIncome')),
+                        false: fn (Builder $query) => $query->whereDoesntHave('invoiceItem')->whereDoesntHave('otherIncome'),
                     ),
                 SelectFilter::make('type')
                     ->options([
@@ -119,8 +135,8 @@ class StripeTransactionsTable
                     ->icon('heroicon-o-document-text')
                     ->requiresConfirmation()
                     ->color('success')
-                    ->visible(fn ($record) => $record->canGenerateInvoice())
-                    ->action(function ($record) {
+                    ->visible(fn (StripeTransaction $record) => $record->canGenerateInvoice())
+                    ->action(function (StripeTransaction $record) {
                         $invoiceService = app(InvoiceService::class);
 
                         try {
@@ -139,6 +155,46 @@ class StripeTransactionsTable
                                 ->send();
                         }
                     }),
+                Action::make('convert_to_other_income')
+                    ->label('Other Income')
+                    ->icon('heroicon-o-banknotes')
+                    ->requiresConfirmation()
+                    ->modalHeading('Convert to Other Income')
+                    ->modalDescription('This will create an Other Income record. Use this for payments without formal invoices.')
+                    ->color('warning')
+                    ->visible(fn (StripeTransaction $record) => $record->canConvertToOtherIncome())
+                    ->action(function (StripeTransaction $record) {
+                        try {
+                            $record->load('stripeAccount.person');
+                            $person = $record->stripeAccount->person;
+
+                            OtherIncome::create([
+                                'person_id' => $person->id,
+                                'stripe_transaction_id' => $record->id,
+                                'income_date' => $record->transaction_date,
+                                'description' => $record->description,
+                                'amount' => $record->amount,
+                                'currency' => $record->currency,
+                                'status' => OtherIncomeStatus::Paid,
+                                'amount_paid' => $record->amount,
+                                'paid_at' => $record->transaction_date,
+                                'reference' => $record->stripe_transaction_id,
+                                'notes' => "Converted from Stripe transaction: {$record->stripe_transaction_id}",
+                            ]);
+
+                            Notification::make()
+                                ->success()
+                                ->title('Converted to Other Income')
+                                ->body('The transaction has been recorded as Other Income.')
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->danger()
+                                ->title('Failed to Convert')
+                                ->body($e->getMessage())
+                                ->send();
+                        }
+                    }),
                 Action::make('ignore')
                     ->label('Ignore')
                     ->icon('heroicon-o-eye-slash')
@@ -146,8 +202,8 @@ class StripeTransactionsTable
                     ->requiresConfirmation()
                     ->modalHeading('Ignore Transaction')
                     ->modalDescription('This transaction will be excluded from invoice generation.')
-                    ->visible(fn ($record) => ! $record->isIgnored() && ! $record->isInvoiced())
-                    ->action(function ($record) {
+                    ->visible(fn (StripeTransaction $record) => ! $record->isIgnored() && ! $record->isProcessed())
+                    ->action(function (StripeTransaction $record) {
                         $record->markAsIgnored();
 
                         Notification::make()
@@ -159,8 +215,8 @@ class StripeTransactionsTable
                     ->label('Unignore')
                     ->icon('heroicon-o-eye')
                     ->color('warning')
-                    ->visible(fn ($record) => $record->isIgnored())
-                    ->action(function ($record) {
+                    ->visible(fn (StripeTransaction $record) => $record->isIgnored())
+                    ->action(function (StripeTransaction $record) {
                         $record->updateCompleteStatus();
 
                         Notification::make()
@@ -236,19 +292,19 @@ class StripeTransactionsTable
                         ->requiresConfirmation()
                         ->modalHeading('Ignore Transactions')
                         ->modalDescription(function (Collection $records) {
-                            $eligibleCount = $records->filter(fn ($r) => ! $r->isIgnored() && ! $r->isInvoiced())->count();
+                            $eligibleCount = $records->filter(fn ($r) => ! $r->isIgnored() && ! $r->isProcessed())->count();
 
                             if ($eligibleCount === 0) {
-                                return 'None of the selected transactions can be ignored (already ignored or invoiced).';
+                                return 'None of the selected transactions can be ignored (already ignored or processed).';
                             }
 
-                            return "{$eligibleCount} transaction(s) will be marked as ignored and excluded from invoice generation.";
+                            return "{$eligibleCount} transaction(s) will be marked as ignored and excluded from processing.";
                         })
                         ->action(function (Collection $records) {
                             $count = 0;
 
                             foreach ($records as $record) {
-                                if (! $record->isIgnored() && ! $record->isInvoiced()) {
+                                if (! $record->isIgnored() && ! $record->isProcessed()) {
                                     $record->markAsIgnored();
                                     $count++;
                                 }

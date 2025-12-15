@@ -45,9 +45,24 @@ class StripeTransaction extends Model
         return $this->hasOne(InvoiceItem::class);
     }
 
+    public function otherIncome(): HasOne
+    {
+        return $this->hasOne(OtherIncome::class);
+    }
+
     public function isInvoiced(): bool
     {
         return $this->invoiceItem()->exists();
+    }
+
+    public function isOtherIncome(): bool
+    {
+        return $this->otherIncome()->exists();
+    }
+
+    public function isProcessed(): bool
+    {
+        return $this->isInvoiced() || $this->isOtherIncome();
     }
 
     public function isIgnored(): bool
@@ -70,7 +85,12 @@ class StripeTransaction extends Model
 
     public function canGenerateInvoice(): bool
     {
-        return $this->isReady() && ! $this->isInvoiced();
+        return $this->isReady() && ! $this->isProcessed();
+    }
+
+    public function canConvertToOtherIncome(): bool
+    {
+        return $this->isReady() && ! $this->isProcessed();
     }
 
     public function updateCompleteStatus(): void

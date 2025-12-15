@@ -15,6 +15,7 @@ class OtherIncome extends Model
     protected $fillable = [
         'person_id',
         'income_source_id',
+        'stripe_transaction_id',
         'income_date',
         'description',
         'amount',
@@ -55,6 +56,16 @@ class OtherIncome extends Model
     public function bankAccount(): BelongsTo
     {
         return $this->belongsTo(BankAccount::class);
+    }
+
+    public function stripeTransaction(): BelongsTo
+    {
+        return $this->belongsTo(StripeTransaction::class);
+    }
+
+    public function isFromStripe(): bool
+    {
+        return $this->stripe_transaction_id !== null;
     }
 
     public function hasOriginalFile(): bool
