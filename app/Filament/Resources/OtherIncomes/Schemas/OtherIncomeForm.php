@@ -117,7 +117,13 @@ class OtherIncomeForm
                             ->dehydrateStateUsing(fn ($state) => $state ? (int) round((float) $state * 100) : null),
                         Select::make('bank_account_id')
                             ->label('Paid Into Account')
-                            ->options(BankAccount::active()->pluck('name', 'id'))
+                            ->options(function ($get) {
+                                $currency = $get('currency');
+
+                                return BankAccount::active()
+                                    ->when($currency, fn ($query) => $query->where('currency', $currency))
+                                    ->pluck('name', 'id');
+                            })
                             ->searchable()
                             ->placeholder('Select bank account'),
                         DatePicker::make('paid_at')

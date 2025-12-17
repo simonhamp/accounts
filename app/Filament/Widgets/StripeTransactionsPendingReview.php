@@ -24,6 +24,8 @@ class StripeTransactionsPendingReview extends TableWidget
             ->query(
                 StripeTransaction::query()
                     ->where('status', 'pending_review')
+                    ->whereDoesntHave('invoiceItem')
+                    ->whereDoesntHave('otherIncome')
                     ->with('stripeAccount')
                     ->orderBy('transaction_date', 'desc')
             )

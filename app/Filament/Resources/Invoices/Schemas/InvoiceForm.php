@@ -202,7 +202,8 @@ class InvoiceForm
                                 'GBP' => 'GBP - British Pound',
                             ])
                             ->default('EUR')
-                            ->required(),
+                            ->required()
+                            ->live(),
 
                         Placeholder::make('total_amount_display')
                             ->label('Total Amount')
@@ -220,7 +221,13 @@ class InvoiceForm
 
                         Select::make('bank_account_id')
                             ->label('Payment Account')
-                            ->options(BankAccount::active()->pluck('name', 'id'))
+                            ->options(function ($get) {
+                                $currency = $get('currency');
+
+                                return BankAccount::active()
+                                    ->when($currency, fn ($query) => $query->where('currency', $currency))
+                                    ->pluck('name', 'id');
+                            })
                             ->searchable()
                             ->placeholder('Select bank account for payment page')
                             ->helperText('Enables a payment page with bank details for the customer'),

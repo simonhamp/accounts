@@ -8,6 +8,7 @@ use App\Filament\Widgets\InvoicesChart;
 use App\Filament\Widgets\InvoicesPendingAction;
 use App\Filament\Widgets\NetIncomeStats;
 use App\Filament\Widgets\OtherIncomeChart;
+use App\Filament\Widgets\OtherIncomePendingPayment;
 use App\Filament\Widgets\PersonEarningsChart;
 use App\Filament\Widgets\PersonExpensesChart;
 use App\Filament\Widgets\StripeTransactionsPendingReview;
@@ -31,6 +32,7 @@ class Dashboard extends BaseDashboard
             PersonExpensesChart::class,
             StripeTransactionsPendingReview::class,
             InvoicesPendingAction::class,
+            OtherIncomePendingPayment::class,
             BillsAwaitingPayment::class,
         ];
     }
