@@ -11,6 +11,8 @@ class ExchangeRateService
 {
     private const ECB_API_BASE_URL = 'https://data-api.ecb.europa.eu/service/data/EXR';
 
+    private const MAX_FALLBACK_DAYS = 7;
+
     /**
      * Convert an amount from a given currency to EUR.
      *
@@ -37,7 +39,7 @@ class ExchangeRateService
     /**
      * Get the exchange rate from a currency to EUR.
      * Uses cached rates from DB, or fetches from ECB if not available.
-     * Falls back to most recent available rate for weekends/holidays.
+     * Falls back to most recent available rate for weekends/holidays (max 7 days).
      *
      * @param  string  $currency  The source currency code
      * @param  Carbon  $date  The date for the exchange rate
@@ -49,19 +51,22 @@ class ExchangeRateService
             return 1.0;
         }
 
+        // First check cache for the exact date
         $cachedRate = $this->findCachedRate($currency, $date);
 
         if ($cachedRate !== null) {
             return $cachedRate;
         }
 
+        // Try to fetch from ECB for this specific date
         $fetchedRate = $this->fetchFromEcb($currency, $date);
 
         if ($fetchedRate !== null) {
             return $fetchedRate;
         }
 
-        return $this->findFallbackRate($currency, $date);
+        // If exact date not available (weekend/holiday), query ECB for fallback
+        return $this->fetchFallbackRateFromEcb($currency, $date);
     }
 
     /**
@@ -75,13 +80,46 @@ class ExchangeRateService
     }
 
     /**
-     * Find the most recent rate before the given date (fallback for weekends/holidays).
+     * Fetch a fallback rate from ECB by querying the previous 7 days.
+     * This is used when the exact date has no rate (weekends/holidays).
+     *
+     * @param  string  $currency  The source currency code
+     * @param  Carbon  $date  The date for which we need a rate
+     * @return float|null The most recent available rate within 7 days, or null
      */
-    private function findFallbackRate(string $currency, Carbon $date): ?float
+    private function fetchFallbackRateFromEcb(string $currency, Carbon $date): ?float
     {
-        $rate = ExchangeRate::latestForCurrency($date, $currency)->first();
+        // Query ECB for the range from (date - 7 days) to date
+        $startDate = $date->copy()->subDays(self::MAX_FALLBACK_DAYS);
+        $rates = $this->fetchRangeFromEcb($currency, $startDate, $date);
 
-        return $rate?->rate;
+        if (empty($rates)) {
+            Log::warning('No fallback rate found from ECB within 7 days', [
+                'currency' => $currency,
+                'date' => $date->toDateString(),
+            ]);
+
+            return null;
+        }
+
+        // Get the most recent rate (dates are keys, so sort and get the last one)
+        krsort($rates);
+        $mostRecentDate = array_key_first($rates);
+        $rate = $rates[$mostRecentDate];
+
+        // Store all fetched rates for future use
+        foreach ($rates as $rateDate => $rateValue) {
+            $this->storeRate($currency, Carbon::parse($rateDate), $rateValue);
+        }
+
+        Log::info('Using fallback rate from previous business day', [
+            'currency' => $currency,
+            'requested_date' => $date->toDateString(),
+            'fallback_date' => $mostRecentDate,
+            'rate' => $rate,
+        ]);
+
+        return $rate;
     }
 
     /**

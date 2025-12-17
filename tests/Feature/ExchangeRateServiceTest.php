@@ -64,20 +64,55 @@ describe('ExchangeRateService', function () {
             expect($rate)->toBe(0.85);
         });
 
-        it('falls back to previous rate for weekends', function () {
-            ExchangeRate::create([
-                'date' => '2024-01-12',
-                'from_currency' => 'USD',
-                'to_currency' => 'EUR',
-                'rate' => 1.09,
-            ]);
+        it('fetches fallback rate from ECB for weekends', function () {
+            // 2024-01-14 is a Sunday, ECB won't have a rate for it
+            // First call (exact date) returns empty, range call returns fallback rate
+            $emptyResponse = 'KEY,FREQ,CURRENCY,OBS_VALUE,TIME_PERIOD';
+            $fallbackResponse = "KEY,FREQ,CURRENCY,OBS_VALUE,TIME_PERIOD\nEXR.D.USD.EUR.SP00.A,D,USD,1.09,2024-01-12";
 
             Http::fake([
-                '*' => Http::response('', 200),
+                // Exact date query returns empty (no rate for Sunday)
+                '*startPeriod=2024-01-14&endPeriod=2024-01-14*' => Http::response($emptyResponse, 200),
+                // Range query returns the Friday rate
+                '*startPeriod=2024-01-07*' => Http::response($fallbackResponse, 200),
             ]);
 
             $rate = $this->service->getRate('USD', Carbon::parse('2024-01-14'));
 
+            expect($rate)->toBe(1.09);
+            // Rate should be stored for the business day
+            expect(ExchangeRate::whereDate('date', '2024-01-12')->exists())->toBeTrue();
+        });
+
+        it('returns null when no fallback rate within 7 days', function () {
+            Http::fake([
+                '*' => Http::response('', 200), // Empty response means no rates
+            ]);
+
+            $rate = $this->service->getRate('USD', Carbon::parse('2024-01-15'));
+
+            expect($rate)->toBeNull();
+        });
+
+        it('fetches fallback from ECB API not from local cache', function () {
+            // Even with a cached rate from 10 days ago, it should query ECB API
+            ExchangeRate::create([
+                'date' => '2024-01-01',
+                'from_currency' => 'USD',
+                'to_currency' => 'EUR',
+                'rate' => 1.05,
+            ]);
+
+            // Mock ECB API to return a more recent rate
+            $csvResponse = "KEY,FREQ,CURRENCY,OBS_VALUE,TIME_PERIOD\nEXR.D.USD.EUR.SP00.A,D,USD,1.09,2024-01-12";
+
+            Http::fake([
+                'data-api.ecb.europa.eu/*' => Http::response($csvResponse, 200),
+            ]);
+
+            $rate = $this->service->getRate('USD', Carbon::parse('2024-01-14'));
+
+            // Should use ECB rate, not the old cached one
             expect($rate)->toBe(1.09);
         });
     });
@@ -123,6 +158,46 @@ describe('ExchangeRateService', function () {
             $rate = $this->service->fetchFromEcb('USD', Carbon::parse('2024-01-15'));
 
             expect($rate)->toBeNull();
+        });
+    });
+
+    describe('fetchRangeFromEcb', function () {
+        it('fetches multiple rates from ECB API', function () {
+            $csvResponse = <<<'CSV'
+KEY,FREQ,CURRENCY,OBS_VALUE,TIME_PERIOD
+EXR.D.USD.EUR.SP00.A,D,USD,1.09,2024-01-10
+EXR.D.USD.EUR.SP00.A,D,USD,1.10,2024-01-11
+EXR.D.USD.EUR.SP00.A,D,USD,1.11,2024-01-12
+CSV;
+
+            Http::fake([
+                'data-api.ecb.europa.eu/*' => Http::response($csvResponse, 200),
+            ]);
+
+            $rates = $this->service->fetchRangeFromEcb(
+                'USD',
+                Carbon::parse('2024-01-10'),
+                Carbon::parse('2024-01-15')
+            );
+
+            expect($rates)->toHaveCount(3);
+            expect($rates['2024-01-10'])->toBe(1.09);
+            expect($rates['2024-01-11'])->toBe(1.10);
+            expect($rates['2024-01-12'])->toBe(1.11);
+        });
+
+        it('returns empty array on API failure', function () {
+            Http::fake([
+                '*' => Http::response('Error', 500),
+            ]);
+
+            $rates = $this->service->fetchRangeFromEcb(
+                'USD',
+                Carbon::parse('2024-01-10'),
+                Carbon::parse('2024-01-15')
+            );
+
+            expect($rates)->toBeEmpty();
         });
     });
 
