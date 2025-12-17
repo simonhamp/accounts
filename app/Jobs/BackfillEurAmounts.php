@@ -18,6 +18,10 @@ class BackfillEurAmounts implements ShouldQueue
 
     public int $tries = 1;
 
+    public int $maxExceptions = 1;
+
+    public bool $failOnTimeout = true;
+
     public function __construct(
         public bool $force = false
     ) {}
@@ -144,5 +148,14 @@ class BackfillEurAmounts implements ShouldQueue
                 }
             }
         });
+    }
+
+    public function failed(?\Throwable $exception): void
+    {
+        Log::error('EUR amounts backfill job failed', [
+            'force' => $this->force,
+            'exception' => $exception?->getMessage(),
+            'trace' => $exception?->getTraceAsString(),
+        ]);
     }
 }
