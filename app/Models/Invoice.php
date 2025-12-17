@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\InvoiceStatus;
+use App\Services\ExchangeRateService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -29,6 +30,7 @@ class Invoice extends Model
         'customer_tax_id',
         'total_amount',
         'write_off_amount',
+        'amount_eur',
         'currency',
         'pdf_path',
         'pdf_path_en',
@@ -50,6 +52,7 @@ class Invoice extends Model
             'period_year' => 'integer',
             'total_amount' => 'integer',
             'write_off_amount' => 'integer',
+            'amount_eur' => 'integer',
             'generated_at' => 'datetime',
             'status' => InvoiceStatus::class,
             'extracted_data' => 'array',
@@ -68,6 +71,12 @@ class Invoice extends Model
             // Calculate total from line items (only if items exist and total wasn't explicitly set)
             if ($invoice->exists && $invoice->items()->exists()) {
                 $invoice->total_amount = $invoice->items()->sum('total');
+            }
+
+            // Calculate EUR equivalent
+            if ($invoice->currency && $invoice->invoice_date && $invoice->total_amount) {
+                $invoice->amount_eur = app(ExchangeRateService::class)
+                    ->convertToEur($invoice->total_amount, $invoice->currency, $invoice->invoice_date);
             }
 
             // Update current state hash
@@ -183,7 +192,12 @@ class Invoice extends Model
 
     public function scopeFinalized(Builder $query): Builder
     {
-        return $query->where('status', InvoiceStatus::ReadyToSend);
+        return $query->whereIn('status', [
+            InvoiceStatus::ReadyToSend,
+            InvoiceStatus::Sent,
+            InvoiceStatus::PartiallyPaid,
+            InvoiceStatus::Paid,
+        ]);
     }
 
     public function scopeAwaitingPayment(Builder $query): Builder

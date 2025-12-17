@@ -18,6 +18,8 @@ return [
     'type' => 'Type',
     'description' => 'Description',
     'amount' => 'Amount',
+    'amount_eur' => 'EUR Amount',
+    'total_eur' => 'Total (EUR)',
     'download' => 'Download',
 
     // Record types

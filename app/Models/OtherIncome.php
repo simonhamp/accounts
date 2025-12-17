@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\OtherIncomeStatus;
+use App\Services\ExchangeRateService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -19,6 +20,7 @@ class OtherIncome extends Model
         'income_date',
         'description',
         'amount',
+        'amount_eur',
         'currency',
         'status',
         'amount_paid',
@@ -36,11 +38,23 @@ class OtherIncome extends Model
         return [
             'income_date' => 'date',
             'amount' => 'integer',
+            'amount_eur' => 'integer',
             'amount_paid' => 'integer',
             'status' => OtherIncomeStatus::class,
             'paid_at' => 'date',
             'extracted_data' => 'array',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (OtherIncome $income) {
+            // Calculate EUR equivalent
+            if ($income->currency && $income->income_date && $income->amount) {
+                $income->amount_eur = app(ExchangeRateService::class)
+                    ->convertToEur($income->amount, $income->currency, $income->income_date);
+            }
+        });
     }
 
     public function person(): BelongsTo

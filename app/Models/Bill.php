@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\BillStatus;
+use App\Services\ExchangeRateService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,6 +22,7 @@ class Bill extends Model
         'bill_date',
         'due_date',
         'total_amount',
+        'amount_eur',
         'currency',
         'status',
         'original_file_path',
@@ -35,9 +37,21 @@ class Bill extends Model
             'bill_date' => 'date',
             'due_date' => 'date',
             'total_amount' => 'integer',
+            'amount_eur' => 'integer',
             'status' => BillStatus::class,
             'extracted_data' => 'array',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Bill $bill) {
+            // Calculate EUR equivalent
+            if ($bill->currency && $bill->bill_date && $bill->total_amount) {
+                $bill->amount_eur = app(ExchangeRateService::class)
+                    ->convertToEur($bill->total_amount, $bill->currency, $bill->bill_date);
+            }
+        });
     }
 
     public function supplier(): BelongsTo

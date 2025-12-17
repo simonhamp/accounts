@@ -282,6 +282,14 @@
                     <strong>{{ number_format($invoice->total_amount / 100, 2, ',', '.') }} {{ $invoice->currency }}</strong>
                 </td>
             </tr>
+            @if($invoice->currency !== 'EUR' && $invoice->amount_eur)
+            <tr>
+                <td style="font-size: 11px; color: #666;">Equivalente en EUR:</td>
+                <td class="text-right" style="font-size: 11px; color: #666;">
+                    {{ number_format($invoice->amount_eur / 100, 2, ',', '.') }} EUR
+                </td>
+            </tr>
+            @endif
         </table>
     </div>
 

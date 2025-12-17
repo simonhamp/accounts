@@ -43,6 +43,11 @@
                                         'net' => $income - $outgoing,
                                     ];
                                 });
+
+                                // Calculate EUR totals
+                                $eurIncomeTotal = $records->where('is_income', true)->sum('amount_eur');
+                                $eurOutgoingTotal = $records->where('is_income', false)->sum('amount_eur');
+                                $eurNetTotal = $eurIncomeTotal - $eurOutgoingTotal;
                             @endphp
 
                             @if($selectedYear >= 2023)
@@ -99,6 +104,9 @@
                                                 {{ __('records.amount') }}
                                             </th>
                                             <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                                                {{ __('records.amount_eur') }}
+                                            </th>
+                                            <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                                                 {{ __('records.download') }}
                                             </th>
                                         </tr>
@@ -130,6 +138,13 @@
                                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium {{ $record['is_income'] ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' }}">
                                                     {{ $record['is_income'] ? '+' : '-' }}{{ number_format($record['amount'] / 100, 2) }} {{ $record['currency'] }}
                                                 </td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium {{ $record['is_income'] ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' }}">
+                                                    @if($record['amount_eur'])
+                                                        {{ $record['is_income'] ? '+' : '-' }}{{ number_format($record['amount_eur'] / 100, 2) }} EUR
+                                                    @else
+                                                        <span class="text-zinc-400 dark:text-zinc-600">-</span>
+                                                    @endif
+                                                </td>
                                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-right">
                                                     @if($record['download_url'])
                                                         <a
@@ -148,6 +163,17 @@
                                             </tr>
                                         @endforeach
                                     </tbody>
+                                    <tfoot class="bg-zinc-100 dark:bg-zinc-800">
+                                        <tr>
+                                            <td colspan="4" class="px-6 py-4 text-sm font-bold text-zinc-900 dark:text-white text-right">
+                                                {{ __('records.total_eur') }}
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold {{ $eurNetTotal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' }}">
+                                                {{ $eurNetTotal >= 0 ? '+' : '' }}{{ number_format($eurNetTotal / 100, 2) }} EUR
+                                            </td>
+                                            <td></td>
+                                        </tr>
+                                    </tfoot>
                                 </table>
                             </div>
                         @endif
