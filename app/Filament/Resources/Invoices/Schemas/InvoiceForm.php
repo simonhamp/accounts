@@ -273,7 +273,7 @@ class InvoiceForm
                                     ->numeric()
                                     ->default(1)
                                     ->required()
-                                    ->minValue(0.0001)
+                                    ->minValue(0)
                                     ->step(0.0001)
                                     ->live(onBlur: true)
                                     ->afterStateUpdated(function ($state, callable $set, callable $get) {
