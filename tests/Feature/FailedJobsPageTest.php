@@ -10,20 +10,20 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 describe('Failed Jobs Page Access', function () {
-    it('denies access to non-admin users', function () {
+    it('denies access to panel admins who are not the app admin', function () {
         config(['app.admin_email' => 'admin@example.com']);
 
-        $user = User::factory()->create(['email' => 'user@example.com']);
+        $user = User::factory()->admin()->create(['email' => 'user@example.com']);
 
         $this->actingAs($user)
             ->get(FailedJobs::getUrl())
             ->assertForbidden();
     });
 
-    it('allows access to admin user', function () {
+    it('allows access to the app admin', function () {
         config(['app.admin_email' => 'admin@example.com']);
 
-        $user = User::factory()->create(['email' => 'admin@example.com']);
+        $user = User::factory()->admin()->create(['email' => 'admin@example.com']);
 
         $this->actingAs($user)
             ->get(FailedJobs::getUrl())
@@ -33,7 +33,7 @@ describe('Failed Jobs Page Access', function () {
     it('denies access when admin email is not configured', function () {
         config(['app.admin_email' => null]);
 
-        $user = User::factory()->create();
+        $user = User::factory()->admin()->create();
 
         $this->actingAs($user)
             ->get(FailedJobs::getUrl())
@@ -44,7 +44,7 @@ describe('Failed Jobs Page Access', function () {
 describe('Failed Jobs Page Content', function () {
     beforeEach(function () {
         config(['app.admin_email' => 'admin@example.com']);
-        $this->admin = User::factory()->create(['email' => 'admin@example.com']);
+        $this->admin = User::factory()->admin()->create(['email' => 'admin@example.com']);
         $this->actingAs($this->admin);
     });
 
@@ -129,7 +129,7 @@ describe('Failed Jobs Navigation Badge', function () {
 describe('View Failed Job Exception Page', function () {
     it('displays exception details for admin user', function () {
         config(['app.admin_email' => 'admin@example.com']);
-        $admin = User::factory()->create(['email' => 'admin@example.com']);
+        $admin = User::factory()->admin()->create(['email' => 'admin@example.com']);
 
         $failedJob = FailedJob::create([
             'uuid' => 'test-uuid-view',
@@ -148,9 +148,9 @@ describe('View Failed Job Exception Page', function () {
             ->assertSee('Job Information');
     });
 
-    it('denies access to non-admin users', function () {
+    it('denies access to panel admins who are not the app admin', function () {
         config(['app.admin_email' => 'admin@example.com']);
-        $user = User::factory()->create(['email' => 'user@example.com']);
+        $user = User::factory()->admin()->create(['email' => 'user@example.com']);
 
         $failedJob = FailedJob::create([
             'uuid' => 'test-uuid-deny',

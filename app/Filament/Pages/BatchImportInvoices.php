@@ -26,7 +26,18 @@ class BatchImportInvoices extends Page implements HasForms
 
     public static function getNavigationGroup(): ?string
     {
-        return 'Income';
+        return 'Settings';
+    }
+
+    public static function canAccess(): bool
+    {
+        $adminEmail = config('app.admin_email');
+
+        if (! $adminEmail) {
+            return false;
+        }
+
+        return auth()->user()?->email === $adminEmail;
     }
 
     public static function getNavigationLabel(): string
