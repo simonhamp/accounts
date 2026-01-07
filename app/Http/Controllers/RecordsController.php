@@ -91,7 +91,8 @@ class RecordsController extends Controller
                 'is_income' => true,
                 'download_url' => $invoice->pdf_path ? route('invoices.download-pdf', ['invoice' => $invoice, 'language' => $locale]) : null,
                 'status' => $invoice->status->label(),
-            ]);
+            ])
+            ->toBase();
 
         // Get other income
         $otherIncomes = OtherIncome::where('person_id', $person->id)
@@ -109,7 +110,8 @@ class RecordsController extends Controller
                 'is_income' => true,
                 'download_url' => $income->original_file_path ? route('other-incomes.original-pdf', $income) : null,
                 'status' => $income->status->label(),
-            ]);
+            ])
+            ->toBase();
 
         // Get bills (outgoing)
         $bills = Bill::where('person_id', $person->id)
@@ -127,7 +129,8 @@ class RecordsController extends Controller
                 'is_income' => false,
                 'download_url' => $bill->original_file_path ? route('bills.original-pdf', $bill) : null,
                 'status' => $bill->status->label(),
-            ]);
+            ])
+            ->toBase();
 
         return $invoices
             ->merge($otherIncomes)
