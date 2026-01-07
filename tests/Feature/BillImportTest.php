@@ -564,6 +564,138 @@ describe('Bill Line Items', function () {
     });
 });
 
+describe('Person Guessing from Supplier', function () {
+    it('guesses person from previous bills with same supplier', function () {
+        Storage::fake('local');
+        Storage::disk('local')->put('test-bill.pdf', 'fake pdf content');
+
+        $supplier = Supplier::factory()->create(['name' => 'Acme Corp']);
+        $person = Person::factory()->create(['name' => 'Simon Hamp']);
+
+        // Create a previous bill from this supplier with a person assigned
+        Bill::factory()->paid()->create([
+            'supplier_id' => $supplier->id,
+            'person_id' => $person->id,
+            'bill_date' => '2025-01-01',
+        ]);
+
+        // Create a new bill to import
+        $newBill = Bill::factory()->pending()->create([
+            'original_file_path' => 'test-bill.pdf',
+            'supplier_id' => null,
+            'person_id' => null,
+        ]);
+
+        $extractedData = [
+            'supplier_name' => 'Acme Corp',
+            'bill_number' => 'BILL-NEW',
+            'bill_date' => '2025-01-15',
+            'total_amount' => 25000,
+            'currency' => 'EUR',
+            'items' => [],
+        ];
+
+        $mockExtractionService = mock(BillExtractionService::class);
+        $mockExtractionService->shouldReceive('extract')
+            ->once()
+            ->andReturn($extractedData);
+
+        $job = new ProcessBillImport($newBill);
+        $job->handle($mockExtractionService);
+
+        $newBill->refresh();
+
+        expect($newBill->person_id)->toBe($person->id);
+        expect($newBill->extracted_data['person_guessed'])->toBeTrue();
+    });
+
+    it('does not guess person when supplier has no previous bills with person', function () {
+        Storage::fake('local');
+        Storage::disk('local')->put('test-bill.pdf', 'fake pdf content');
+
+        $supplier = Supplier::factory()->create(['name' => 'New Supplier']);
+
+        $newBill = Bill::factory()->pending()->create([
+            'original_file_path' => 'test-bill.pdf',
+            'supplier_id' => null,
+            'person_id' => null,
+        ]);
+
+        $extractedData = [
+            'supplier_name' => 'New Supplier',
+            'bill_number' => 'BILL-NEW',
+            'bill_date' => '2025-01-15',
+            'total_amount' => 25000,
+            'currency' => 'EUR',
+            'items' => [],
+        ];
+
+        $mockExtractionService = mock(BillExtractionService::class);
+        $mockExtractionService->shouldReceive('extract')
+            ->once()
+            ->andReturn($extractedData);
+
+        $job = new ProcessBillImport($newBill);
+        $job->handle($mockExtractionService);
+
+        $newBill->refresh();
+
+        expect($newBill->person_id)->toBeNull();
+        expect($newBill->extracted_data['person_guessed'] ?? false)->toBeFalse();
+    });
+
+    it('uses most recent bill for person guessing', function () {
+        Storage::fake('local');
+        Storage::disk('local')->put('test-bill.pdf', 'fake pdf content');
+
+        $supplier = Supplier::factory()->create(['name' => 'Shared Supplier']);
+        $person1 = Person::factory()->create(['name' => 'Person One']);
+        $person2 = Person::factory()->create(['name' => 'Person Two']);
+
+        // Old bill with person1
+        Bill::factory()->paid()->create([
+            'supplier_id' => $supplier->id,
+            'person_id' => $person1->id,
+            'bill_date' => '2024-01-01',
+        ]);
+
+        // Newer bill with person2
+        Bill::factory()->paid()->create([
+            'supplier_id' => $supplier->id,
+            'person_id' => $person2->id,
+            'bill_date' => '2025-01-01',
+        ]);
+
+        $newBill = Bill::factory()->pending()->create([
+            'original_file_path' => 'test-bill.pdf',
+            'supplier_id' => null,
+            'person_id' => null,
+        ]);
+
+        $extractedData = [
+            'supplier_name' => 'Shared Supplier',
+            'bill_number' => 'BILL-NEW',
+            'bill_date' => '2025-01-15',
+            'total_amount' => 25000,
+            'currency' => 'EUR',
+            'items' => [],
+        ];
+
+        $mockExtractionService = mock(BillExtractionService::class);
+        $mockExtractionService->shouldReceive('extract')
+            ->once()
+            ->andReturn($extractedData);
+
+        $job = new ProcessBillImport($newBill);
+        $job->handle($mockExtractionService);
+
+        $newBill->refresh();
+
+        // Should use person2 from the most recent bill
+        expect($newBill->person_id)->toBe($person2->id);
+    });
+});
+
 describe('Supplier Relationship', function () {
     it('bill belongs to supplier', function () {
         $supplier = Supplier::factory()->create();

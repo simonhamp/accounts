@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\InvoiceItemUnit;
 use App\Exceptions\ImportFailedException;
 use App\Models\Bill;
+use App\Models\Person;
 use App\Models\Supplier;
 use App\Services\BillExtractionService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -41,6 +42,7 @@ class ProcessBillImport implements ShouldQueue
             $extracted = $extractionService->extract($filePath);
 
             $supplier = $this->findOrCreateSupplier($extracted);
+            $guessedPerson = $this->guessPersonFromSupplier($supplier);
 
             $billDate = ! empty($extracted['bill_date'])
                 ? \Carbon\Carbon::parse($extracted['bill_date'])
@@ -50,8 +52,14 @@ class ProcessBillImport implements ShouldQueue
                 ? \Carbon\Carbon::parse($extracted['due_date'])
                 : null;
 
+            // Store person_guessed flag in extracted_data
+            if ($guessedPerson) {
+                $extracted['person_guessed'] = true;
+            }
+
             $this->bill->update([
                 'supplier_id' => $supplier?->id,
+                'person_id' => $guessedPerson?->id,
                 'bill_number' => $extracted['bill_number'] ?? null,
                 'bill_date' => $billDate,
                 'due_date' => $dueDate,
@@ -147,6 +155,23 @@ class ProcessBillImport implements ShouldQueue
             'address' => $extracted['supplier_address'] ?? null,
             'email' => $extracted['supplier_email'] ?? null,
         ]);
+    }
+
+    protected function guessPersonFromSupplier(?Supplier $supplier): ?Person
+    {
+        if (! $supplier) {
+            return null;
+        }
+
+        // Find the most recent bill from this supplier that has a person assigned
+        $previousBill = Bill::query()
+            ->where('supplier_id', $supplier->id)
+            ->whereNotNull('person_id')
+            ->where('id', '!=', $this->bill->id)
+            ->latest('bill_date')
+            ->first();
+
+        return $previousBill?->person;
     }
 
     protected function guessUnit(string $description): InvoiceItemUnit
