@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\BillStatus;
+use App\Enums\InvoiceStatus;
+use App\Enums\OtherIncomeStatus;
 use App\Models\Bill;
 use App\Models\Invoice;
 use App\Models\OtherIncome;
@@ -76,10 +79,16 @@ class RecordsController extends Controller
     {
         $locale = app()->getLocale();
 
-        // Get invoices (income)
+        // Get invoices (income) - only finalized invoices
         $invoices = Invoice::where('person_id', $person->id)
             ->whereYear('invoice_date', $year)
             ->whereNotNull('invoice_date')
+            ->whereIn('status', [
+                InvoiceStatus::ReadyToSend,
+                InvoiceStatus::Sent,
+                InvoiceStatus::PartiallyPaid,
+                InvoiceStatus::Paid,
+            ])
             ->get()
             ->map(fn ($invoice) => [
                 'type' => 'invoice',
@@ -94,10 +103,11 @@ class RecordsController extends Controller
             ])
             ->toBase();
 
-        // Get other income
+        // Get other income - only paid
         $otherIncomes = OtherIncome::where('person_id', $person->id)
             ->whereYear('income_date', $year)
             ->whereNotNull('income_date')
+            ->where('status', OtherIncomeStatus::Paid)
             ->with('incomeSource')
             ->get()
             ->map(fn ($income) => [
@@ -113,10 +123,11 @@ class RecordsController extends Controller
             ])
             ->toBase();
 
-        // Get bills (outgoing)
+        // Get bills (outgoing) - only paid
         $bills = Bill::where('person_id', $person->id)
             ->whereYear('bill_date', $year)
             ->whereNotNull('bill_date')
+            ->where('status', BillStatus::Paid)
             ->with('supplier')
             ->get()
             ->map(fn ($bill) => [
