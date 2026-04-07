@@ -1,0 +1,21 @@
+name: Ensemble Dependency Sync
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # Daily at 9am UTC
+  push:
+    paths:
+      - 'composer.lock'
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync to Ensemble
+        uses: simonhamp/ensemble-action@v1
+        with:
+          api-key: ${{ secrets.ENSEMBLE_API_KEY }}
+          php-version: 8.4
