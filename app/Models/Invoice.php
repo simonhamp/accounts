@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Enums\CustomerTaxRegion;
 use App\Enums\InvoiceStatus;
+use App\Enums\TaxRegime;
 use App\Services\ExchangeRateService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -29,6 +31,11 @@ class Invoice extends Model
         'customer_address',
         'customer_tax_id',
         'total_amount',
+        'tax_base_total',
+        'tax_total',
+        'irpf_rate',
+        'irpf_amount',
+        'legal_notes',
         'write_off_amount',
         'amount_eur',
         'currency',
@@ -51,6 +58,10 @@ class Invoice extends Model
             'period_month' => 'integer',
             'period_year' => 'integer',
             'total_amount' => 'integer',
+            'tax_base_total' => 'integer',
+            'tax_total' => 'integer',
+            'irpf_rate' => 'decimal:2',
+            'irpf_amount' => 'integer',
             'write_off_amount' => 'integer',
             'amount_eur' => 'integer',
             'generated_at' => 'datetime',
@@ -68,9 +79,14 @@ class Invoice extends Model
                 $invoice->period_year = $invoice->invoice_date->year;
             }
 
-            // Calculate total from line items (only if items exist and total wasn't explicitly set)
+            // Calculate totals from line items
             if ($invoice->exists && $invoice->items()->exists()) {
-                $invoice->total_amount = $invoice->items()->sum('total');
+                $invoice->tax_base_total = (int) $invoice->items()->sum('total');
+                $invoice->tax_total = (int) $invoice->items()->sum('tax_amount');
+                $invoice->irpf_amount = $invoice->irpf_rate
+                    ? (int) round($invoice->tax_base_total * (float) $invoice->irpf_rate / 100)
+                    : 0;
+                $invoice->total_amount = $invoice->tax_base_total + $invoice->tax_total - $invoice->irpf_amount;
             }
 
             // Calculate EUR equivalent
@@ -87,7 +103,10 @@ class Invoice extends Model
     public function computeStateHash(): string
     {
         $items = $this->exists
-            ? $this->items()->orderBy('id')->get(['description', 'quantity', 'unit_price', 'total'])->toArray()
+            ? $this->items()
+                ->orderBy('id')
+                ->get(['description', 'quantity', 'unit_price', 'total', 'tax_type', 'tax_rate', 'tax_amount'])
+                ->toArray()
             : [];
 
         $state = [
@@ -99,6 +118,8 @@ class Invoice extends Model
             'due_date' => $this->due_date?->format('Y-m-d'),
             'bank_account_id' => $this->bank_account_id,
             'currency' => $this->currency,
+            'irpf_rate' => $this->irpf_rate,
+            'legal_notes' => $this->legal_notes,
             'items' => $items,
         ];
 
@@ -107,8 +128,54 @@ class Invoice extends Model
 
     public function recalculateTotal(): void
     {
-        $this->total_amount = $this->items()->sum('total');
+        $this->tax_base_total = (int) $this->items()->sum('total');
+        $this->tax_total = (int) $this->items()->sum('tax_amount');
+        $this->irpf_amount = $this->irpf_rate
+            ? (int) round($this->tax_base_total * (float) $this->irpf_rate / 100)
+            : 0;
+        $this->total_amount = $this->tax_base_total + $this->tax_total - $this->irpf_amount;
         $this->saveQuietly();
+    }
+
+    /**
+     * Group line items by (tax_type, tax_rate) for the totals breakdown.
+     *
+     * @return \Illuminate\Support\Collection<int, array{type: \App\Enums\TaxType|null, rate: float, base: int, tax: int}>
+     */
+    public function taxBreakdown(): \Illuminate\Support\Collection
+    {
+        return $this->items
+            ->groupBy(fn (InvoiceItem $item) => ($item->tax_type?->value ?? 'none').':'.(string) $item->tax_rate)
+            ->map(fn ($group) => [
+                'type' => $group->first()->tax_type,
+                'rate' => (float) $group->first()->tax_rate,
+                'base' => (int) $group->sum('total'),
+                'tax' => (int) $group->sum('tax_amount'),
+            ])
+            ->values();
+    }
+
+    public function hasTaxBreakdown(): bool
+    {
+        return $this->tax_total !== 0
+            || ($this->irpf_amount ?? 0) !== 0
+            || $this->items->contains(fn (InvoiceItem $item) => $item->tax_type !== null);
+    }
+
+    /**
+     * True when a Canarias-regime issuer is invoicing a customer outside the
+     * Canary Islands — IGIC does not apply and the invoice must state the
+     * "Operación no sujeta a IGIC. Inversión del sujeto pasivo" clause.
+     */
+    public function requiresIgicReverseChargeNote(): bool
+    {
+        if ($this->person?->tax_regime !== TaxRegime::Canarias) {
+            return false;
+        }
+
+        $region = $this->customer?->tax_region;
+
+        return $region !== null && $region !== CustomerTaxRegion::Canarias;
     }
 
     public function getPreviewInvoiceNumber(): ?string

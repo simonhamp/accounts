@@ -2,8 +2,10 @@
 
 namespace App\Filament\Resources\Invoices\Schemas;
 
+use App\Enums\CustomerTaxRegion;
 use App\Enums\InvoiceItemUnit;
 use App\Enums\InvoiceStatus;
+use App\Enums\TaxType;
 use App\Models\BankAccount;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -124,6 +126,9 @@ class InvoiceForm
                                         if (empty($get('customer_address'))) {
                                             $set('customer_address', $customer->address);
                                         }
+                                        if (empty($get('customer_tax_id')) && $customer->tax_id) {
+                                            $set('customer_tax_id', $customer->tax_id);
+                                        }
                                     }
                                 }
                             })
@@ -136,6 +141,17 @@ class InvoiceForm
                                     ->maxLength(255),
                                 Textarea::make('address')
                                     ->rows(3),
+                                TextInput::make('tax_id')
+                                    ->label('Tax ID / NIF / CIF')
+                                    ->maxLength(255),
+                                TextInput::make('country_code')
+                                    ->label('Country code (ISO)')
+                                    ->maxLength(2)
+                                    ->helperText('e.g. ES, GB, FR'),
+                                Select::make('tax_region')
+                                    ->label('Tax region')
+                                    ->options(CustomerTaxRegion::class)
+                                    ->placeholder('Unknown / not set'),
                             ])
                             ->hintAction(
                                 Action::make('viewCustomer')
@@ -255,6 +271,26 @@ class InvoiceForm
                     ->columns(2)
                     ->visible(fn ($record) => $record?->isFinalized()),
 
+                Section::make('Tax & Withholding')
+                    ->components([
+                        TextInput::make('irpf_rate')
+                            ->label('IRPF Withholding Rate (%)')
+                            ->numeric()
+                            ->step(0.01)
+                            ->minValue(0)
+                            ->maxValue(100)
+                            ->helperText('Leave empty if no IRPF withholding applies. Common rates: 7%, 15%, 19%.'),
+
+                        Textarea::make('legal_notes')
+                            ->label('Legal notes / Tax clauses')
+                            ->rows(2)
+                            ->helperText('e.g. "Operación exenta de IVA según artículo 20 LIVA" or "Inversión del sujeto pasivo"')
+                            ->columnSpanFull(),
+                    ])
+                    ->columns(2)
+                    ->collapsible()
+                    ->collapsed(fn ($record) => ! $record?->irpf_rate && ! $record?->legal_notes),
+
                 Section::make('Line Items')
                     ->components([
                         Repeater::make('items')
@@ -298,6 +334,19 @@ class InvoiceForm
                                     ->suffix('cents')
                                     ->disabled()
                                     ->dehydrated(),
+
+                                Select::make('tax_type')
+                                    ->options(TaxType::class)
+                                    ->placeholder('No tax')
+                                    ->columnSpan(2),
+
+                                TextInput::make('tax_rate')
+                                    ->label('Tax %')
+                                    ->numeric()
+                                    ->step(0.01)
+                                    ->minValue(0)
+                                    ->default(0)
+                                    ->columnSpan(2),
                             ])
                             ->columns(6)
                             ->defaultItems(0)

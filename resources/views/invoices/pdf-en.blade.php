@@ -221,11 +221,11 @@
             </div>
             <div class="header-right">
                 <div class="from-details">
-                    <strong>{{ $invoice->person->name }}</strong><br>
+                    <strong>{{ $invoice->person->name }}{{ $invoice->person->entity_type?->legalSuffix() ? ', '.$invoice->person->entity_type->legalSuffix() : '' }}</strong><br>
                     {{ $invoice->person->address }}<br>
                     {{ $invoice->person->postal_code }}, {{ $invoice->person->city }}<br>
                     {{ $invoice->person->country }}<br>
-                    Tax ID: {{ $invoice->person->dni_nie }}
+                    {{ $invoice->person->taxIdentifierLabel() }}: {{ $invoice->person->taxIdentifier() }}
                 </div>
             </div>
         </div>
@@ -248,16 +248,22 @@
         </div>
     </div>
 
+    @php
+        $showTaxColumn = $invoice->hasTaxBreakdown();
+    @endphp
     <div class="section">
         <div class="section-title">{{ $invoice->isCreditNote() ? 'CREDIT NOTE DETAILS' : 'INVOICE DETAILS' }}</div>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 40%;">Description</th>
-                    <th class="text-right" style="width: 12%;">Quantity</th>
-                    <th style="width: 12%;">Unit</th>
-                    <th class="text-right" style="width: 16%;">Unit Price</th>
-                    <th class="text-right" style="width: 20%;">Total</th>
+                    <th style="width: {{ $showTaxColumn ? '32%' : '40%' }};">Description</th>
+                    <th class="text-right" style="width: 10%;">Quantity</th>
+                    <th style="width: 10%;">Unit</th>
+                    <th class="text-right" style="width: 14%;">Unit Price</th>
+                    @if($showTaxColumn)
+                        <th class="text-right" style="width: 10%;">Tax</th>
+                    @endif
+                    <th class="text-right" style="width: {{ $showTaxColumn ? '16%' : '20%' }};">Total</th>
                 </tr>
             </thead>
             <tbody>
@@ -267,6 +273,15 @@
                     <td class="text-right">{{ rtrim(rtrim(number_format($item->quantity, 4, '.', ','), '0'), '.') }}</td>
                     <td>{{ $item->unit?->label() ?? 'Units' }}</td>
                     <td class="text-right">{{ number_format($item->unit_price / 100, 2, '.', ',') }} {{ $invoice->currency }}</td>
+                    @if($showTaxColumn)
+                        <td class="text-right">
+                            @if($item->tax_type)
+                                {{ $item->tax_type->labelEn() }}{{ $item->tax_type->isTaxable() ? ' '.rtrim(rtrim(number_format((float) $item->tax_rate, 2, '.', ','), '0'), '.').'%' : '' }}
+                            @else
+                                &mdash;
+                            @endif
+                        </td>
+                    @endif
                     <td class="text-right">{{ number_format($item->total / 100, 2, '.', ',') }} {{ $invoice->currency }}</td>
                 </tr>
                 @endforeach
@@ -276,6 +291,26 @@
 
     <div class="totals">
         <table>
+            @if($showTaxColumn)
+                <tr>
+                    <td>Subtotal:</td>
+                    <td class="text-right">{{ number_format($invoice->tax_base_total / 100, 2, '.', ',') }} {{ $invoice->currency }}</td>
+                </tr>
+                @foreach($invoice->taxBreakdown() as $group)
+                    @if($group['type']?->isTaxable())
+                        <tr>
+                            <td>{{ $group['type']->labelEn() }} {{ rtrim(rtrim(number_format($group['rate'], 2, '.', ','), '0'), '.') }}%:</td>
+                            <td class="text-right">{{ number_format($group['tax'] / 100, 2, '.', ',') }} {{ $invoice->currency }}</td>
+                        </tr>
+                    @endif
+                @endforeach
+                @if($invoice->irpf_rate && $invoice->irpf_amount)
+                    <tr>
+                        <td>IRPF Withholding {{ rtrim(rtrim(number_format((float) $invoice->irpf_rate, 2, '.', ','), '0'), '.') }}%:</td>
+                        <td class="text-right">-{{ number_format($invoice->irpf_amount / 100, 2, '.', ',') }} {{ $invoice->currency }}</td>
+                    </tr>
+                @endif
+            @endif
             <tr class="total-row">
                 <td><strong>TOTAL:</strong></td>
                 <td class="text-right">
@@ -292,6 +327,18 @@
             @endif
         </table>
     </div>
+
+    @if($invoice->requiresIgicReverseChargeNote())
+    <div class="section" style="margin-top: 20px; padding: 10px; border: 1px solid #ddd; font-size: 11px; color: #333;">
+        <strong>Transaction not subject to IGIC. Reverse charge applies (inversión del sujeto pasivo).</strong>
+    </div>
+    @endif
+
+    @if($invoice->legal_notes)
+    <div class="section" style="margin-top: 20px; font-size: 11px; color: #555;">
+        {!! nl2br(e($invoice->legal_notes)) !!}
+    </div>
+    @endif
 
     @if($invoice->isPaid())
     <div class="payment-info">
@@ -313,6 +360,17 @@
     @endif
 
     <div class="footer">
+        @if($invoice->person->isLegalEntity())
+            @if($invoice->person->registro_mercantil)
+                <p>{{ $invoice->person->registro_mercantil }}</p>
+            @endif
+            @if($invoice->person->share_capital)
+                <p>Share Capital: {{ number_format($invoice->person->share_capital / 100, 2, '.', ',') }} EUR</p>
+            @endif
+            @if($invoice->person->cif)
+                <p>CIF: {{ $invoice->person->cif }}</p>
+            @endif
+        @endif
         <p>{{ $invoice->isCreditNote() ? 'Credit note generated' : 'Invoice generated' }} on {{ $invoice->generated_at?->format('d/m/Y H:i') ?? now()->format('d/m/Y H:i') }}</p>
     </div>
 

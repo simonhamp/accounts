@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\EntityType;
+use App\Enums\TaxRegime;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,7 +18,12 @@ class Person extends Model
         'city',
         'postal_code',
         'country',
+        'entity_type',
         'dni_nie',
+        'cif',
+        'registro_mercantil',
+        'share_capital',
+        'tax_regime',
         'invoice_prefix',
         'next_invoice_number',
     ];
@@ -25,7 +32,25 @@ class Person extends Model
     {
         return [
             'next_invoice_number' => 'integer',
+            'entity_type' => EntityType::class,
+            'tax_regime' => TaxRegime::class,
+            'share_capital' => 'integer',
         ];
+    }
+
+    public function isLegalEntity(): bool
+    {
+        return $this->entity_type?->isLegalEntity() ?? false;
+    }
+
+    public function taxIdentifier(): ?string
+    {
+        return $this->isLegalEntity() ? $this->cif : $this->dni_nie;
+    }
+
+    public function taxIdentifierLabel(): string
+    {
+        return $this->isLegalEntity() ? 'CIF' : 'DNI/NIE';
     }
 
     public function stripeAccounts(): HasMany

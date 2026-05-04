@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\CustomerTaxRegion;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -15,7 +16,17 @@ class Customer extends Model
         'name',
         'email',
         'address',
+        'tax_id',
+        'country_code',
+        'tax_region',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'tax_region' => CustomerTaxRegion::class,
+        ];
+    }
 
     public function invoices(): HasMany
     {
