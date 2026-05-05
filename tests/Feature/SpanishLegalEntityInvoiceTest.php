@@ -264,6 +264,25 @@ it('seeded the Sinoperro Person via migration', function () {
     expect($sinoperro->city)->toBe('Las Palmas de Gran Canaria');
     expect($sinoperro->postal_code)->toBe('35010');
     expect($sinoperro->invoice_prefix)->toBe('SP');
+    expect($sinoperro->is_default)->toBeTrue();
+});
+
+it('Person::default() returns the flagged person', function () {
+    Person::query()->update(['is_default' => false]);
+
+    $a = Person::factory()->create(['is_default' => false]);
+    $b = Person::factory()->create(['is_default' => true]);
+    Person::factory()->create(['is_default' => false]);
+
+    expect(Person::default()?->id)->toBe($b->id);
+});
+
+it('Person::default() returns null when no default is flagged', function () {
+    Person::query()->update(['is_default' => false]);
+
+    Person::factory()->count(2)->create(['is_default' => false]);
+
+    expect(Person::default())->toBeNull();
 });
 
 it('renders without tax breakdown for an individual with no tax on items', function () {

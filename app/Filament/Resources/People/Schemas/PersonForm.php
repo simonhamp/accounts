@@ -7,6 +7,7 @@ use App\Enums\TaxRegime;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Schema;
 
 class PersonForm
@@ -67,6 +68,9 @@ class PersonForm
                     ->required()
                     ->numeric()
                     ->default(1),
+                Toggle::make('is_default')
+                    ->label('Default issuer')
+                    ->helperText('Pre-selected when creating invoices, importing bills, Stripe transactions and other income. Only one person should be the default.'),
             ]);
     }
 }

@@ -26,6 +26,7 @@ class Person extends Model
         'tax_regime',
         'invoice_prefix',
         'next_invoice_number',
+        'is_default',
     ];
 
     protected function casts(): array
@@ -35,7 +36,13 @@ class Person extends Model
             'entity_type' => EntityType::class,
             'tax_regime' => TaxRegime::class,
             'share_capital' => 'integer',
+            'is_default' => 'boolean',
         ];
+    }
+
+    public static function default(): ?self
+    {
+        return static::query()->where('is_default', true)->first();
     }
 
     public function isLegalEntity(): bool

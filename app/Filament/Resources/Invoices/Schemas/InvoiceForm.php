@@ -87,6 +87,7 @@ class InvoiceForm
                             ->preload()
                             ->required()
                             ->live()
+                            ->default(fn () => \App\Models\Person::default()?->id)
                             ->helperText('Required - determines the invoice number'),
 
                         Placeholder::make('invoice_number_preview')

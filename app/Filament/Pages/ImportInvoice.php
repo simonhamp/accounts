@@ -61,6 +61,7 @@ class ImportInvoice extends Page implements HasForms
                             ->label('Person')
                             ->options(Person::all()->pluck('name', 'id'))
                             ->required()
+                            ->default(fn () => Person::default()?->id)
                             ->helperText('Select which person this invoice belongs to'),
 
                         TextInput::make('invoice_number')

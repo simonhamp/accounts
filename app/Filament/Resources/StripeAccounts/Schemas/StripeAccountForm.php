@@ -4,8 +4,8 @@ namespace App\Filament\Resources\StripeAccounts\Schemas;
 
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
 
 class StripeAccountForm
@@ -16,7 +16,8 @@ class StripeAccountForm
             ->components([
                 Select::make('person_id')
                     ->relationship('person', 'name')
-                    ->required(),
+                    ->required()
+                    ->default(fn () => \App\Models\Person::default()?->id),
                 TextInput::make('account_name')
                     ->required(),
                 Textarea::make('api_key')

@@ -147,7 +147,8 @@ class BillsTable
                                 ->label('Person')
                                 ->options(Person::pluck('name', 'id'))
                                 ->searchable()
-                                ->required(),
+                                ->required()
+                                ->default(fn () => Person::default()?->id),
                         ])
                         ->action(function (Collection $records, array $data) {
                             $records->each(fn ($record) => $record->update(['person_id' => $data['person_id']]));

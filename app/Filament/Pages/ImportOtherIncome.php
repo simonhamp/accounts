@@ -80,6 +80,7 @@ class ImportOtherIncome extends Page implements HasForms
                             ->options(Person::pluck('name', 'id'))
                             ->required()
                             ->searchable()
+                            ->default(fn () => Person::default()?->id)
                             ->helperText('Select the person this income belongs to'),
                         Select::make('income_source_id')
                             ->label('Income Source (Optional)')
@@ -115,6 +116,7 @@ class ImportOtherIncome extends Page implements HasForms
                             ->options(Person::pluck('name', 'id'))
                             ->required()
                             ->searchable()
+                            ->default(fn () => Person::default()?->id)
                             ->helperText('Select the person this income belongs to'),
                         Select::make('income_source_id')
                             ->label('Income Source')
