@@ -2,7 +2,10 @@
 
 namespace App\Models;
 
+use App\Enums\CustomerTaxRegion;
 use App\Enums\InvoiceStatus;
+use App\Enums\TaxRegime;
+use App\Exceptions\InvoiceOrderingException;
 use App\Services\ExchangeRateService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,6 +17,13 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 class Invoice extends Model
 {
     use HasFactory;
+
+    /**
+     * Threshold in cents (€400.00) above which a simplified invoice is no
+     * longer permitted under RD 1619/2012. Note: some sectors (retail,
+     * restaurants, transport) qualify for a higher €3,000 threshold.
+     */
+    public const SIMPLIFIED_THRESHOLD_EUR_CENTS = 40000;
 
     protected $fillable = [
         'person_id',
@@ -29,6 +39,12 @@ class Invoice extends Model
         'customer_address',
         'customer_tax_id',
         'total_amount',
+        'tax_base_total',
+        'tax_total',
+        'irpf_rate',
+        'irpf_amount',
+        'legal_notes',
+        'is_simplified',
         'write_off_amount',
         'amount_eur',
         'currency',
@@ -51,6 +67,11 @@ class Invoice extends Model
             'period_month' => 'integer',
             'period_year' => 'integer',
             'total_amount' => 'integer',
+            'tax_base_total' => 'integer',
+            'tax_total' => 'integer',
+            'irpf_rate' => 'decimal:2',
+            'irpf_amount' => 'integer',
+            'is_simplified' => 'boolean',
             'write_off_amount' => 'integer',
             'amount_eur' => 'integer',
             'generated_at' => 'datetime',
@@ -68,10 +89,18 @@ class Invoice extends Model
                 $invoice->period_year = $invoice->invoice_date->year;
             }
 
-            // Calculate total from line items (only if items exist and total wasn't explicitly set)
+            // Calculate totals from line items
             if ($invoice->exists && $invoice->items()->exists()) {
-                $invoice->total_amount = $invoice->items()->sum('total');
+                $invoice->tax_base_total = (int) $invoice->items()->sum('total');
+                $invoice->tax_total = (int) $invoice->items()->sum('tax_amount');
+                $invoice->irpf_amount = $invoice->irpf_rate
+                    ? (int) round($invoice->tax_base_total * (float) $invoice->irpf_rate / 100)
+                    : 0;
+                $invoice->total_amount = $invoice->tax_base_total + $invoice->tax_total - $invoice->irpf_amount;
             }
+
+            // Enforce numerical/date ordering for newly-numbered invoices.
+            $invoice->assertDateOrdering();
 
             // Calculate EUR equivalent
             if ($invoice->currency && $invoice->invoice_date && $invoice->total_amount) {
@@ -79,15 +108,227 @@ class Invoice extends Model
                     ->convertToEur($invoice->total_amount, $invoice->currency, $invoice->invoice_date);
             }
 
+            $invoice->assertSimplifiedThreshold();
+            $invoice->assertCustomerDetailsForFinalization();
+
             // Update current state hash
             $invoice->current_state_hash = $invoice->computeStateHash();
         });
+
+        static::deleting(function (Invoice $invoice) {
+            $invoice->assertDeletable();
+
+            // When the most recent invoice in a series is deleted, roll back
+            // the Person's counter so the next allocation reuses the number.
+            if ($invoice->person_id && $invoice->invoice_number) {
+                $person = $invoice->person;
+                $prefix = $invoice->invoicePrefix();
+
+                if ($person && $prefix) {
+                    $highest = static::query()
+                        ->where('person_id', $invoice->person_id)
+                        ->where('invoice_number', 'like', $prefix.'-%')
+                        ->orderByDesc('invoice_number')
+                        ->first();
+
+                    if ($highest && $highest->id === $invoice->id) {
+                        $person->decrement('next_invoice_number');
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Extract the series prefix from this invoice's number (everything before
+     * the final hyphen). Date ordering is enforced only within the same series.
+     */
+    public function invoicePrefix(): ?string
+    {
+        if (! $this->invoice_number) {
+            return null;
+        }
+        $pos = strrpos($this->invoice_number, '-');
+
+        return $pos === false ? null : substr($this->invoice_number, 0, $pos);
+    }
+
+    /**
+     * @throws InvoiceOrderingException
+     */
+    public function assertDateOrdering(): void
+    {
+        if (! $this->person_id || ! $this->invoice_number || ! $this->invoice_date) {
+            return;
+        }
+
+        $prefix = $this->invoicePrefix();
+        if (! $prefix) {
+            return;
+        }
+
+        $previous = static::query()
+            ->where('person_id', $this->person_id)
+            ->where('invoice_number', 'like', $prefix.'-%')
+            ->where('invoice_number', '<', $this->invoice_number)
+            ->when($this->exists, fn ($q) => $q->where('id', '!=', $this->id))
+            ->orderByDesc('invoice_number')
+            ->first();
+
+        if ($previous && $this->invoice_date->lt($previous->invoice_date)) {
+            throw InvoiceOrderingException::dateBeforePrevious(
+                $this->invoice_date->format('Y-m-d'),
+                $previous->invoice_number,
+                $previous->invoice_date->format('Y-m-d'),
+            );
+        }
+
+        $next = static::query()
+            ->where('person_id', $this->person_id)
+            ->where('invoice_number', 'like', $prefix.'-%')
+            ->where('invoice_number', '>', $this->invoice_number)
+            ->when($this->exists, fn ($q) => $q->where('id', '!=', $this->id))
+            ->orderBy('invoice_number')
+            ->first();
+
+        if ($next && $this->invoice_date->gt($next->invoice_date)) {
+            throw InvoiceOrderingException::dateAfterNext(
+                $this->invoice_date->format('Y-m-d'),
+                $next->invoice_number,
+                $next->invoice_date->format('Y-m-d'),
+            );
+        }
+    }
+
+    public function effectiveAmountEur(): int
+    {
+        return (int) ($this->amount_eur ?? $this->total_amount);
+    }
+
+    public function isAboveSimplifiedThreshold(): bool
+    {
+        return abs($this->effectiveAmountEur()) > self::SIMPLIFIED_THRESHOLD_EUR_CENTS;
+    }
+
+    /**
+     * Returns the list of full-invoice customer fields that are missing.
+     * Used to flag full invoices over €400 lacking required details.
+     *
+     * @return array<int, string>
+     */
+    public function missingFullInvoiceCustomerFields(): array
+    {
+        $missing = [];
+
+        if (empty($this->customer_name)) {
+            $missing[] = 'customer name';
+        }
+        if (empty($this->customer_address)) {
+            $missing[] = 'customer address';
+        }
+        if (empty($this->customer_tax_id)) {
+            $missing[] = 'customer tax ID';
+        }
+
+        return $missing;
+    }
+
+    /**
+     * @throws InvoiceOrderingException
+     */
+    public function assertSimplifiedThreshold(): void
+    {
+        if (! $this->is_simplified) {
+            return;
+        }
+
+        if ($this->isAboveSimplifiedThreshold()) {
+            throw InvoiceOrderingException::simplifiedAboveThreshold(
+                $this->invoice_number ?? 'unnumbered',
+                $this->effectiveAmountEur(),
+                self::SIMPLIFIED_THRESHOLD_EUR_CENTS,
+            );
+        }
+    }
+
+    /**
+     * Block finalization of full invoices over the €400 threshold when
+     * customer details are incomplete. Pending/draft invoices are allowed
+     * through so the user can save partial progress.
+     *
+     * @throws InvoiceOrderingException
+     */
+    public function assertCustomerDetailsForFinalization(): void
+    {
+        if ($this->is_simplified) {
+            return;
+        }
+
+        if (! $this->isAboveSimplifiedThreshold()) {
+            return;
+        }
+
+        $finalizedStatuses = [
+            InvoiceStatus::ReadyToSend,
+            InvoiceStatus::Sent,
+            InvoiceStatus::PartiallyPaid,
+            InvoiceStatus::Paid,
+        ];
+
+        if (! in_array($this->status, $finalizedStatuses, strict: true)) {
+            return;
+        }
+
+        $missing = $this->missingFullInvoiceCustomerFields();
+
+        if (! empty($missing)) {
+            throw InvoiceOrderingException::fullInvoiceMissingCustomerDetails(
+                $this->invoice_number ?? 'unnumbered',
+                $missing,
+            );
+        }
+    }
+
+    /**
+     * @throws InvoiceOrderingException
+     */
+    public function assertDeletable(): void
+    {
+        if ($this->isFinalized()) {
+            throw InvoiceOrderingException::cannotDeleteFinalized($this->invoice_number ?? 'unknown');
+        }
+
+        // Pending/extracted/reviewed invoices without a number can be deleted freely.
+        if (! $this->invoice_number || ! $this->person_id) {
+            return;
+        }
+
+        $prefix = $this->invoicePrefix();
+        if (! $prefix) {
+            return;
+        }
+
+        $highest = static::query()
+            ->where('person_id', $this->person_id)
+            ->where('invoice_number', 'like', $prefix.'-%')
+            ->orderByDesc('invoice_number')
+            ->first();
+
+        if ($highest && $highest->id !== $this->id) {
+            throw InvoiceOrderingException::cannotDeleteWithGap(
+                $this->invoice_number,
+                $highest->invoice_number,
+            );
+        }
     }
 
     public function computeStateHash(): string
     {
         $items = $this->exists
-            ? $this->items()->orderBy('id')->get(['description', 'quantity', 'unit_price', 'total'])->toArray()
+            ? $this->items()
+                ->orderBy('id')
+                ->get(['description', 'quantity', 'unit_price', 'total', 'tax_type', 'tax_rate', 'tax_amount'])
+                ->toArray()
             : [];
 
         $state = [
@@ -99,6 +340,8 @@ class Invoice extends Model
             'due_date' => $this->due_date?->format('Y-m-d'),
             'bank_account_id' => $this->bank_account_id,
             'currency' => $this->currency,
+            'irpf_rate' => $this->irpf_rate,
+            'legal_notes' => $this->legal_notes,
             'items' => $items,
         ];
 
@@ -107,8 +350,54 @@ class Invoice extends Model
 
     public function recalculateTotal(): void
     {
-        $this->total_amount = $this->items()->sum('total');
+        $this->tax_base_total = (int) $this->items()->sum('total');
+        $this->tax_total = (int) $this->items()->sum('tax_amount');
+        $this->irpf_amount = $this->irpf_rate
+            ? (int) round($this->tax_base_total * (float) $this->irpf_rate / 100)
+            : 0;
+        $this->total_amount = $this->tax_base_total + $this->tax_total - $this->irpf_amount;
         $this->saveQuietly();
+    }
+
+    /**
+     * Group line items by (tax_type, tax_rate) for the totals breakdown.
+     *
+     * @return \Illuminate\Support\Collection<int, array{type: \App\Enums\TaxType|null, rate: float, base: int, tax: int}>
+     */
+    public function taxBreakdown(): \Illuminate\Support\Collection
+    {
+        return $this->items
+            ->groupBy(fn (InvoiceItem $item) => ($item->tax_type?->value ?? 'none').':'.(string) $item->tax_rate)
+            ->map(fn ($group) => [
+                'type' => $group->first()->tax_type,
+                'rate' => (float) $group->first()->tax_rate,
+                'base' => (int) $group->sum('total'),
+                'tax' => (int) $group->sum('tax_amount'),
+            ])
+            ->values();
+    }
+
+    public function hasTaxBreakdown(): bool
+    {
+        return $this->tax_total !== 0
+            || ($this->irpf_amount ?? 0) !== 0
+            || $this->items->contains(fn (InvoiceItem $item) => $item->tax_type !== null);
+    }
+
+    /**
+     * True when a Canarias-regime issuer is invoicing a customer outside the
+     * Canary Islands — IGIC does not apply and the invoice must state the
+     * "Operación no sujeta a IGIC. Inversión del sujeto pasivo" clause.
+     */
+    public function requiresIgicReverseChargeNote(): bool
+    {
+        if ($this->person?->tax_regime !== TaxRegime::Canarias) {
+            return false;
+        }
+
+        $region = $this->customer?->tax_region;
+
+        return $region !== null && $region !== CustomerTaxRegion::Canarias;
     }
 
     public function getPreviewInvoiceNumber(): ?string

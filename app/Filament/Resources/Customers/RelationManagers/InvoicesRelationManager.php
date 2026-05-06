@@ -37,6 +37,7 @@ class InvoicesRelationManager extends RelationManager
                     ->preload()
                     ->required()
                     ->live()
+                    ->default(fn () => Person::default()?->id)
                     ->helperText('Required - determines the invoice number'),
 
                 Placeholder::make('invoice_number_preview')

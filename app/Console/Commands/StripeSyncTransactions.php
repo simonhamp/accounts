@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\StripeAccount;
+use App\Services\InvoiceService;
 use App\Services\StripeImportService;
 use Illuminate\Console\Command;
 
@@ -11,11 +12,12 @@ class StripeSyncTransactions extends Command
     protected $signature = 'stripe:sync-transactions
                             {--account= : Sync specific account ID}
                             {--year= : Sync transactions for specific year}
-                            {--month= : Sync transactions for specific month (1-12)}';
+                            {--month= : Sync transactions for specific month (1-12)}
+                            {--skip-auto-invoice : Skip auto-generating invoices for ready transactions}';
 
     protected $description = 'Sync Stripe transactions from all configured accounts';
 
-    public function handle(StripeImportService $importService): int
+    public function handle(StripeImportService $importService, InvoiceService $invoiceService): int
     {
         $accounts = $this->option('account')
             ? StripeAccount::query()->where('id', $this->option('account'))->get()
@@ -63,6 +65,22 @@ class StripeSyncTransactions extends Command
 
         $this->newLine();
         $this->info('✓ All accounts synced successfully!');
+
+        if (! $this->option('skip-auto-invoice')) {
+            $this->newLine();
+            $this->info('Auto-generating invoices for ready transactions...');
+
+            $accountFilter = $accounts->count() === 1 ? $accounts->first() : null;
+            $result = $invoiceService->generateInvoicesForReadyTransactions($accountFilter);
+
+            $this->info("  ✓ Generated {$result['generated']} invoice(s)");
+            if ($result['failed'] > 0) {
+                $this->warn("  ✗ Failed to generate {$result['failed']} invoice(s); see logs for details");
+                foreach ($result['errors'] as $error) {
+                    $this->line("    Transaction #{$error['transaction_id']}: {$error['error']}");
+                }
+            }
+        }
 
         return self::SUCCESS;
     }

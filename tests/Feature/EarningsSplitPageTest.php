@@ -19,6 +19,10 @@ beforeEach(function () {
     $this->admin = User::factory()->admin()->create();
     $this->actingAs($this->admin);
 
+    // Wipe seeded people (e.g. sinoperro from the legal-entity migration) so
+    // each test creates exactly the people it asserts against.
+    Person::query()->delete();
+
     // Create a supplier for bills (to avoid factory creating random people)
     $this->supplier = Supplier::factory()->create();
 });
@@ -61,6 +65,8 @@ describe('Earnings Split Page', function () {
             'currency' => 'EUR',
             'status' => InvoiceStatus::Paid,
             'customer_name' => 'Test Customer',
+            'customer_address' => '123 Test St, Madrid, 28001, Spain',
+            'customer_tax_id' => 'X1234567Y',
         ]);
 
         Bill::create([
@@ -86,6 +92,8 @@ describe('Earnings Split Page', function () {
             'currency' => 'EUR',
             'status' => InvoiceStatus::Paid,
             'customer_name' => 'Test Customer 2',
+            'customer_address' => '456 Test Ave, Barcelona, 08001, Spain',
+            'customer_tax_id' => 'B12345678',
         ]);
 
         $component = Livewire::test(EarningsSplit::class, ['year' => (string) $currentYear]);
@@ -119,6 +127,8 @@ describe('Earnings Split Page', function () {
             'currency' => 'EUR',
             'status' => InvoiceStatus::Paid,
             'customer_name' => 'Test Customer',
+            'customer_address' => '123 Test St, Madrid, 28001, Spain',
+            'customer_tax_id' => 'X1234567Y',
         ]);
 
         // Noelia earns €400
@@ -133,6 +143,8 @@ describe('Earnings Split Page', function () {
             'currency' => 'EUR',
             'status' => InvoiceStatus::Paid,
             'customer_name' => 'Test Customer 2',
+            'customer_address' => '456 Test Ave, Barcelona, 08001, Spain',
+            'customer_tax_id' => 'B12345678',
         ]);
 
         $component = Livewire::test(EarningsSplit::class, ['year' => (string) $currentYear]);
@@ -166,6 +178,8 @@ describe('Earnings Split Page', function () {
             'currency' => 'EUR',
             'status' => InvoiceStatus::Pending,
             'customer_name' => 'Test Customer',
+            'customer_address' => '123 Test St, Madrid, 28001, Spain',
+            'customer_tax_id' => 'X1234567Y',
         ]);
 
         // Paid invoice should be included
@@ -180,6 +194,8 @@ describe('Earnings Split Page', function () {
             'currency' => 'EUR',
             'status' => InvoiceStatus::Paid,
             'customer_name' => 'Test Customer 2',
+            'customer_address' => '456 Test Ave, Barcelona, 08001, Spain',
+            'customer_tax_id' => 'B12345678',
         ]);
 
         $component = Livewire::test(EarningsSplit::class, ['year' => (string) $currentYear]);
@@ -255,24 +271,10 @@ describe('Earnings Split Page', function () {
     it('can filter by year', function () {
         $simon = Person::factory()->create(['name' => 'Simon Hamp']);
 
-        // 2024 invoice
+        // 2023 invoice (earlier number, earlier date — invoice numbering must be chronological)
         Invoice::create([
             'person_id' => $simon->id,
             'invoice_number' => 'TEST-007',
-            'invoice_date' => '2024-05-15',
-            'period_month' => 5,
-            'period_year' => 2024,
-            'total_amount' => 100000,
-            'amount_eur' => 100000,
-            'currency' => 'EUR',
-            'status' => InvoiceStatus::Paid,
-            'customer_name' => 'Test Customer',
-        ]);
-
-        // 2023 invoice
-        Invoice::create([
-            'person_id' => $simon->id,
-            'invoice_number' => 'TEST-008',
             'invoice_date' => '2023-05-15',
             'period_month' => 5,
             'period_year' => 2023,
@@ -281,6 +283,24 @@ describe('Earnings Split Page', function () {
             'currency' => 'EUR',
             'status' => InvoiceStatus::Paid,
             'customer_name' => 'Test Customer 2',
+            'customer_address' => '456 Test Ave, Barcelona, 08001, Spain',
+            'customer_tax_id' => 'B12345678',
+        ]);
+
+        // 2024 invoice
+        Invoice::create([
+            'person_id' => $simon->id,
+            'invoice_number' => 'TEST-008',
+            'invoice_date' => '2024-05-15',
+            'period_month' => 5,
+            'period_year' => 2024,
+            'total_amount' => 100000,
+            'amount_eur' => 100000,
+            'currency' => 'EUR',
+            'status' => InvoiceStatus::Paid,
+            'customer_name' => 'Test Customer',
+            'customer_address' => '123 Test St, Madrid, 28001, Spain',
+            'customer_tax_id' => 'X1234567Y',
         ]);
 
         // Test 2024

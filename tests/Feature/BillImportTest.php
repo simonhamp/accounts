@@ -613,6 +613,10 @@ describe('Person Guessing from Supplier', function () {
         Storage::fake('local');
         Storage::disk('local')->put('test-bill.pdf', 'fake pdf content');
 
+        // No default issuer set — the seeded one is cleared so this test
+        // exercises the "no history, no default" path.
+        Person::query()->update(['is_default' => false]);
+
         $supplier = Supplier::factory()->create(['name' => 'New Supplier']);
 
         $newBill = Bill::factory()->pending()->create([
@@ -641,6 +645,44 @@ describe('Person Guessing from Supplier', function () {
         $newBill->refresh();
 
         expect($newBill->person_id)->toBeNull();
+        expect($newBill->extracted_data['person_guessed'] ?? false)->toBeFalse();
+    });
+
+    it('falls back to the default Person when no supplier history exists', function () {
+        Storage::fake('local');
+        Storage::disk('local')->put('test-bill.pdf', 'fake pdf content');
+
+        Person::query()->update(['is_default' => false]);
+        $defaultPerson = Person::factory()->create(['is_default' => true]);
+
+        $newBill = Bill::factory()->pending()->create([
+            'original_file_path' => 'test-bill.pdf',
+            'supplier_id' => null,
+            'person_id' => null,
+        ]);
+
+        $extractedData = [
+            'supplier_name' => 'Brand New Supplier',
+            'bill_number' => 'BILL-NEW',
+            'bill_date' => '2025-01-15',
+            'total_amount' => 25000,
+            'currency' => 'EUR',
+            'items' => [],
+        ];
+
+        $mockExtractionService = mock(BillExtractionService::class);
+        $mockExtractionService->shouldReceive('extract')
+            ->once()
+            ->andReturn($extractedData);
+
+        $job = new ProcessBillImport($newBill);
+        $job->handle($mockExtractionService);
+
+        $newBill->refresh();
+
+        expect($newBill->person_id)->toBe($defaultPerson->id);
+        // Flag stays false — the assignment came from the default, not from
+        // supplier history, so no review prompt is needed.
         expect($newBill->extracted_data['person_guessed'] ?? false)->toBeFalse();
     });
 

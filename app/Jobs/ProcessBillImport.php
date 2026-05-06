@@ -44,6 +44,11 @@ class ProcessBillImport implements ShouldQueue
             $supplier = $this->findOrCreateSupplier($extracted);
             $guessedPerson = $this->guessPersonFromSupplier($supplier);
 
+            // Fall back to the configured default issuer when supplier history
+            // doesn't pin a person. The flag is only set for history-based
+            // guesses, since those are the ones that warrant a review prompt.
+            $assignedPerson = $guessedPerson ?? Person::default();
+
             $billDate = ! empty($extracted['bill_date'])
                 ? \Carbon\Carbon::parse($extracted['bill_date'])
                 : null;
@@ -59,7 +64,7 @@ class ProcessBillImport implements ShouldQueue
 
             $this->bill->update([
                 'supplier_id' => $supplier?->id,
-                'person_id' => $guessedPerson?->id,
+                'person_id' => $assignedPerson?->id,
                 'bill_number' => $extracted['bill_number'] ?? null,
                 'bill_date' => $billDate,
                 'due_date' => $dueDate,

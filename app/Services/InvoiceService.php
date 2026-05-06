@@ -5,9 +5,11 @@ namespace App\Services;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Person;
+use App\Models\StripeAccount;
 use App\Models\StripeTransaction;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class InvoiceService
@@ -89,15 +91,26 @@ class InvoiceService
         );
     }
 
-    protected function createInvoice(Person $person, int $year, int $month, string $customerName, $transactions): Invoice
+    protected function createInvoice(Person $person, int $year, int $month, ?string $customerName, $transactions): Invoice
     {
         return DB::transaction(function () use ($person, $year, $month, $customerName, $transactions) {
             $firstTransaction = $transactions->first();
-            $totalAmount = 0;
+            $totalAmount = (int) $transactions->sum('amount');
+            $currency = $firstTransaction->currency;
+
+            $amountEur = $currency === 'EUR'
+                ? $totalAmount
+                : app(ExchangeRateService::class)->convertToEur(
+                    $totalAmount,
+                    $currency,
+                    $firstTransaction->transaction_date,
+                );
+
+            $isSimplified = abs($amountEur) <= Invoice::SIMPLIFIED_THRESHOLD_EUR_CENTS;
 
             $invoice = Invoice::create([
                 'person_id' => $person->id,
-                'invoice_number' => $person->getNextInvoiceNumber(),
+                'invoice_number' => $person->allocateNextInvoiceNumber(),
                 'invoice_date' => $firstTransaction->transaction_date,
                 'period_month' => $month,
                 'period_year' => $year,
@@ -105,12 +118,12 @@ class InvoiceService
                 'customer_address' => $firstTransaction->customer_address,
                 'customer_tax_id' => null,
                 'total_amount' => 0,
-                'currency' => $firstTransaction->currency,
+                'currency' => $currency,
+                'is_simplified' => $isSimplified,
             ]);
 
             foreach ($transactions as $transaction) {
                 $itemTotal = $transaction->amount;
-                $totalAmount += $itemTotal;
 
                 InvoiceItem::create([
                     'invoice_id' => $invoice->id,
@@ -126,8 +139,6 @@ class InvoiceService
 
             $this->generateAndStorePdf($invoice);
 
-            $person->incrementInvoiceNumber();
-
             return $invoice;
         });
     }
@@ -135,6 +146,46 @@ class InvoiceService
     public function regeneratePdf(Invoice $invoice): void
     {
         $this->generateAndStorePdf($invoice);
+    }
+
+    /**
+     * Generate one invoice per ready, unprocessed Stripe transaction in
+     * chronological order so invoice numbers and dates stay consistent.
+     *
+     * @return array{generated: int, failed: int, errors: array<int, array{transaction_id: int, error: string}>}
+     */
+    public function generateInvoicesForReadyTransactions(?StripeAccount $account = null): array
+    {
+        $query = StripeTransaction::query()
+            ->where('status', 'ready')
+            ->whereDoesntHave('invoiceItem')
+            ->whereDoesntHave('otherIncome');
+
+        if ($account) {
+            $query->where('stripe_account_id', $account->id);
+        }
+
+        $transactions = $query->orderBy('transaction_date')->orderBy('id')->get();
+
+        $generated = 0;
+        $failed = 0;
+        $errors = [];
+
+        foreach ($transactions as $transaction) {
+            try {
+                $this->generateInvoiceForTransaction($transaction);
+                $generated++;
+            } catch (\Throwable $e) {
+                $failed++;
+                $errors[] = ['transaction_id' => $transaction->id, 'error' => $e->getMessage()];
+                Log::warning('Failed to auto-generate invoice for Stripe transaction', [
+                    'transaction_id' => $transaction->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return ['generated' => $generated, 'failed' => $failed, 'errors' => $errors];
     }
 
     public function finalizeImportedInvoice(Invoice $invoice): Invoice
@@ -152,9 +203,8 @@ class InvoiceService
 
             if (! $invoice->invoice_number) {
                 $invoice->update([
-                    'invoice_number' => $person->getNextInvoiceNumber(),
+                    'invoice_number' => $person->allocateNextInvoiceNumber(),
                 ]);
-                $person->incrementInvoiceNumber();
             }
 
             $this->generateAndStorePdf($invoice);

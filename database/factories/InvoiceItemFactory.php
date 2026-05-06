@@ -30,6 +30,27 @@ class InvoiceItemFactory extends Factory
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
             'total' => (int) round($quantity * $unitPrice),
+            'tax_type' => null,
+            'tax_rate' => 0,
+            'tax_amount' => 0,
         ];
+    }
+
+    public function withIva(float $rate = 21): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'tax_type' => \App\Enums\TaxType::Iva,
+            'tax_rate' => $rate,
+            'tax_amount' => (int) round(($attributes['total'] ?? 0) * $rate / 100),
+        ]);
+    }
+
+    public function withIgic(float $rate = 7): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'tax_type' => \App\Enums\TaxType::Igic,
+            'tax_rate' => $rate,
+            'tax_amount' => (int) round(($attributes['total'] ?? 0) * $rate / 100),
+        ]);
     }
 }

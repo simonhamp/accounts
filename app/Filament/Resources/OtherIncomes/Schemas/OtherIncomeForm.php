@@ -30,7 +30,8 @@ class OtherIncomeForm
                             ->label('Person')
                             ->options(Person::pluck('name', 'id'))
                             ->required()
-                            ->searchable(),
+                            ->searchable()
+                            ->default(fn () => Person::default()?->id),
                         Select::make('income_source_id')
                             ->label('Income Source')
                             ->options(IncomeSource::active()->pluck('name', 'id'))

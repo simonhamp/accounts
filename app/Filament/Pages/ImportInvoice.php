@@ -31,6 +31,11 @@ class ImportInvoice extends Page implements HasForms
 
     protected string $view = 'filament.pages.import-invoice';
 
+    public static function canAccess(): bool
+    {
+        return false;
+    }
+
     public ?array $data = [];
 
     public bool $showExtractedData = false;
@@ -61,6 +66,7 @@ class ImportInvoice extends Page implements HasForms
                             ->label('Person')
                             ->options(Person::all()->pluck('name', 'id'))
                             ->required()
+                            ->default(fn () => Person::default()?->id)
                             ->helperText('Select which person this invoice belongs to'),
 
                         TextInput::make('invoice_number')

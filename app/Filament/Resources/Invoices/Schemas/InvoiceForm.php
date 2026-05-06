@@ -2,8 +2,10 @@
 
 namespace App\Filament\Resources\Invoices\Schemas;
 
+use App\Enums\CustomerTaxRegion;
 use App\Enums\InvoiceItemUnit;
 use App\Enums\InvoiceStatus;
+use App\Enums\TaxType;
 use App\Models\BankAccount;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -15,6 +17,7 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -85,6 +88,7 @@ class InvoiceForm
                             ->preload()
                             ->required()
                             ->live()
+                            ->default(fn () => \App\Models\Person::default()?->id)
                             ->helperText('Required - determines the invoice number'),
 
                         Placeholder::make('invoice_number_preview')
@@ -108,6 +112,34 @@ class InvoiceForm
 
                 Section::make('Customer Details')
                     ->components([
+                        Placeholder::make('full_invoice_warning')
+                            ->hiddenLabel()
+                            ->content(function ($record) {
+                                if (! $record || $record->is_simplified || ! $record->isAboveSimplifiedThreshold()) {
+                                    return null;
+                                }
+                                $missing = $record->missingFullInvoiceCustomerFields();
+                                if (empty($missing)) {
+                                    return null;
+                                }
+
+                                return new HtmlString(
+                                    '<div style="background-color: #fef3c7; border: 1px solid #fbbf24; border-radius: 0.5rem; padding: 0.75rem 1rem; color: #78350f; font-size: 0.875rem;">'
+                                    .'<strong>Full invoice over &euro;400 is missing:</strong> '
+                                    .e(implode(', ', $missing))
+                                    .'. <br>Either complete these details or mark the invoice as simplified before finalizing. '
+                                    .'Spanish invoicing rules require name, address (incl. country &amp; postcode) and tax ID for full invoices over &euro;400.'
+                                    .'</div>'
+                                );
+                            })
+                            ->columnSpanFull()
+                            ->visible(function ($record) {
+                                return $record
+                                    && ! $record->is_simplified
+                                    && $record->isAboveSimplifiedThreshold()
+                                    && ! empty($record->missingFullInvoiceCustomerFields());
+                            }),
+
                         Select::make('customer_id')
                             ->relationship('customer', 'name')
                             ->searchable()
@@ -124,6 +156,9 @@ class InvoiceForm
                                         if (empty($get('customer_address'))) {
                                             $set('customer_address', $customer->address);
                                         }
+                                        if (empty($get('customer_tax_id')) && $customer->tax_id) {
+                                            $set('customer_tax_id', $customer->tax_id);
+                                        }
                                     }
                                 }
                             })
@@ -136,6 +171,17 @@ class InvoiceForm
                                     ->maxLength(255),
                                 Textarea::make('address')
                                     ->rows(3),
+                                TextInput::make('tax_id')
+                                    ->label('Tax ID / NIF / CIF')
+                                    ->maxLength(255),
+                                TextInput::make('country_code')
+                                    ->label('Country code (ISO)')
+                                    ->maxLength(2)
+                                    ->helperText('e.g. ES, GB, FR'),
+                                Select::make('tax_region')
+                                    ->label('Tax region')
+                                    ->options(CustomerTaxRegion::class)
+                                    ->placeholder('Unknown / not set'),
                             ])
                             ->hintAction(
                                 Action::make('viewCustomer')
@@ -232,6 +278,11 @@ class InvoiceForm
                             ->placeholder('Select bank account for payment page')
                             ->helperText('Enables a payment page with bank details for the customer'),
 
+                        Toggle::make('is_simplified')
+                            ->label('Simplified Invoice (Factura Simplificada)')
+                            ->helperText('Allowed only when the total is €400 or less (incl. tax). Customer details are optional on simplified invoices.')
+                            ->columnSpanFull(),
+
                         Select::make('parent_invoice_id')
                             ->label('Original Invoice (for Credit Note)')
                             ->relationship('parentInvoice', 'invoice_number')
@@ -254,6 +305,26 @@ class InvoiceForm
                     ])
                     ->columns(2)
                     ->visible(fn ($record) => $record?->isFinalized()),
+
+                Section::make('Tax & Withholding')
+                    ->components([
+                        TextInput::make('irpf_rate')
+                            ->label('IRPF Withholding Rate (%)')
+                            ->numeric()
+                            ->step(0.01)
+                            ->minValue(0)
+                            ->maxValue(100)
+                            ->helperText('Leave empty if no IRPF withholding applies. Common rates: 7%, 15%, 19%.'),
+
+                        Textarea::make('legal_notes')
+                            ->label('Legal notes / Tax clauses')
+                            ->rows(2)
+                            ->helperText('e.g. "Operación exenta de IVA según artículo 20 LIVA" or "Inversión del sujeto pasivo"')
+                            ->columnSpanFull(),
+                    ])
+                    ->columns(2)
+                    ->collapsible()
+                    ->collapsed(fn ($record) => ! $record?->irpf_rate && ! $record?->legal_notes),
 
                 Section::make('Line Items')
                     ->components([
@@ -298,6 +369,19 @@ class InvoiceForm
                                     ->suffix('cents')
                                     ->disabled()
                                     ->dehydrated(),
+
+                                Select::make('tax_type')
+                                    ->options(TaxType::class)
+                                    ->placeholder('No tax')
+                                    ->columnSpan(2),
+
+                                TextInput::make('tax_rate')
+                                    ->label('Tax %')
+                                    ->numeric()
+                                    ->step(0.01)
+                                    ->minValue(0)
+                                    ->default(0)
+                                    ->columnSpan(2),
                             ])
                             ->columns(6)
                             ->defaultItems(0)

@@ -77,8 +77,11 @@ class StripeTransaction extends Model
 
     public function isComplete(): bool
     {
-        return ! empty($this->customer_name)
-            && ! empty($this->description)
+        // Customer name is no longer required: sub-€400 transactions can be
+        // issued as simplified invoices without full customer details. The
+        // invoice generation flow classifies and validates threshold-vs-details
+        // when the invoice is created.
+        return ! empty($this->description)
             && $this->amount !== null
             && ! empty($this->currency);
     }

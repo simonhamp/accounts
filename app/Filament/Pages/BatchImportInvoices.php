@@ -24,6 +24,8 @@ class BatchImportInvoices extends Page implements HasForms
 
     protected static ?int $navigationSort = 3;
 
+    protected static bool $shouldRegisterNavigation = false;
+
     public static function getNavigationGroup(): ?string
     {
         return 'Settings';
@@ -31,13 +33,7 @@ class BatchImportInvoices extends Page implements HasForms
 
     public static function canAccess(): bool
     {
-        $adminEmail = config('app.admin_email');
-
-        if (! $adminEmail) {
-            return false;
-        }
-
-        return auth()->user()?->email === $adminEmail;
+        return false;
     }
 
     public static function getNavigationLabel(): string

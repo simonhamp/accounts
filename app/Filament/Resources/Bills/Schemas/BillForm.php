@@ -77,6 +77,7 @@ class BillForm
                             ->searchable()
                             ->preload()
                             ->required(fn ($record) => $record === null || $record->needsReview())
+                            ->default(fn () => \App\Models\Person::default()?->id)
                             ->helperText(fn ($record) => $record?->needsReview()
                                 ? 'Required before approving'
                                 : null),
