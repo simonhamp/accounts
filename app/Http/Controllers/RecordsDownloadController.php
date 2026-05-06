@@ -7,21 +7,28 @@ use App\Models\Document;
 use App\Models\Invoice;
 use App\Models\OtherIncome;
 use App\Models\Person;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use ZipArchive;
 
 class RecordsDownloadController extends Controller
 {
-    public function downloadAll(Person $person, int $year): StreamedResponse
+    public function downloadAll(Person $person, int $year, Request $request): StreamedResponse
     {
-        $files = $this->getFilesForYear($person, $year);
-
-        if ($files->isEmpty()) {
-            abort(404, 'No files found for this year.');
+        $month = $request->query('month');
+        if ($month !== null && ! preg_match('/^'.$year.'-(0[1-9]|1[0-2])$/', $month)) {
+            $month = null;
         }
 
-        $zipFileName = "{$person->name}_{$year}_records.zip";
+        $files = $this->getFilesForPeriod($person, $year, $month);
+
+        if ($files->isEmpty()) {
+            abort(404, 'No files found for this period.');
+        }
+
+        $periodSuffix = $month !== null ? str_replace('-', '_', $month) : (string) $year;
+        $zipFileName = "{$person->name}_{$periodSuffix}_records.zip";
         $tempZipPath = storage_path("app/temp/{$zipFileName}");
 
         // Ensure temp directory exists
@@ -58,15 +65,23 @@ class RecordsDownloadController extends Controller
         ]);
     }
 
-    protected function getFilesForYear(Person $person, int $year): \Illuminate\Support\Collection
+    protected function getFilesForPeriod(Person $person, int $year, ?string $month = null): \Illuminate\Support\Collection
     {
         $files = collect();
         $locale = app()->getLocale();
 
+        $applyPeriod = function ($query, string $dateColumn) use ($year, $month) {
+            $query->whereYear($dateColumn, $year)->whereNotNull($dateColumn);
+
+            if ($month !== null) {
+                $query->whereRaw("strftime('%Y-%m', {$dateColumn}) = ?", [$month]);
+            }
+        };
+
         // Get invoice PDFs - use language-specific PDF
-        Invoice::where('person_id', $person->id)
-            ->whereYear('invoice_date', $year)
-            ->whereNotNull('invoice_date')
+        $invoiceQuery = Invoice::where('person_id', $person->id);
+        $applyPeriod($invoiceQuery, 'invoice_date');
+        $invoiceQuery
             ->each(function ($invoice) use ($files, $locale) {
                 // Use English PDF if locale is 'en', otherwise Spanish
                 $pdfPath = $locale === 'en' ? $invoice->pdf_path_en : $invoice->pdf_path;
@@ -82,11 +97,11 @@ class RecordsDownloadController extends Controller
             });
 
         // Get bill attachments
-        Bill::where('person_id', $person->id)
-            ->whereYear('bill_date', $year)
-            ->whereNotNull('bill_date')
+        $billQuery = Bill::where('person_id', $person->id)
             ->whereNotNull('original_file_path')
-            ->with('supplier')
+            ->with('supplier');
+        $applyPeriod($billQuery, 'bill_date');
+        $billQuery
             ->each(function ($bill) use ($files) {
                 $extension = pathinfo($bill->original_file_path, PATHINFO_EXTENSION);
                 $supplierName = $bill->supplier?->name ?? 'unknown';
@@ -101,11 +116,11 @@ class RecordsDownloadController extends Controller
             });
 
         // Get other income attachments
-        OtherIncome::where('person_id', $person->id)
-            ->whereYear('income_date', $year)
-            ->whereNotNull('income_date')
+        $incomeQuery = OtherIncome::where('person_id', $person->id)
             ->whereNotNull('original_file_path')
-            ->with('incomeSource')
+            ->with('incomeSource');
+        $applyPeriod($incomeQuery, 'income_date');
+        $incomeQuery
             ->each(function ($income) use ($files) {
                 $extension = pathinfo($income->original_file_path, PATHINFO_EXTENSION);
                 $sourceName = $income->incomeSource?->name ?? 'other';
@@ -119,16 +134,18 @@ class RecordsDownloadController extends Controller
                 ]);
             });
 
-        // Get shared documents for the year
-        Document::forYear($year)
-            ->whereNotNull('file_path')
-            ->each(function ($document) use ($files) {
-                $files->push([
-                    'path' => $document->file_path,
-                    'folder' => 'documents',
-                    'filename' => $document->original_filename,
-                ]);
-            });
+        // Get shared documents — only when downloading the whole year
+        if ($month === null) {
+            Document::forYear($year)
+                ->whereNotNull('file_path')
+                ->each(function ($document) use ($files) {
+                    $files->push([
+                        'path' => $document->file_path,
+                        'folder' => 'documents',
+                        'filename' => $document->original_filename,
+                    ]);
+                });
+        }
 
         return $files;
     }
