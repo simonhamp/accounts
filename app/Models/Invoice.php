@@ -332,6 +332,7 @@ class Invoice extends Model
             : [];
 
         $state = [
+            'person_id' => $this->person_id,
             'customer_id' => $this->customer_id,
             'customer_name' => $this->customer_name,
             'customer_address' => $this->customer_address,
@@ -341,6 +342,7 @@ class Invoice extends Model
             'bank_account_id' => $this->bank_account_id,
             'currency' => $this->currency,
             'irpf_rate' => $this->irpf_rate,
+            'is_simplified' => (bool) $this->is_simplified,
             'legal_notes' => $this->legal_notes,
             'items' => $items,
         ];
