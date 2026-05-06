@@ -118,21 +118,39 @@ class Invoice extends Model
         static::deleting(function (Invoice $invoice) {
             $invoice->assertDeletable();
 
-            // When the most recent invoice is deleted, roll back the Person's
-            // counter so the next allocation reuses the freed number.
+            // When the most recent invoice in a series is deleted, roll back
+            // the Person's counter so the next allocation reuses the number.
             if ($invoice->person_id && $invoice->invoice_number) {
                 $person = $invoice->person;
-                $highest = static::query()
-                    ->where('person_id', $invoice->person_id)
-                    ->whereNotNull('invoice_number')
-                    ->orderByDesc('invoice_number')
-                    ->first();
+                $prefix = $invoice->invoicePrefix();
 
-                if ($person && $highest && $highest->id === $invoice->id) {
-                    $person->decrement('next_invoice_number');
+                if ($person && $prefix) {
+                    $highest = static::query()
+                        ->where('person_id', $invoice->person_id)
+                        ->where('invoice_number', 'like', $prefix.'-%')
+                        ->orderByDesc('invoice_number')
+                        ->first();
+
+                    if ($highest && $highest->id === $invoice->id) {
+                        $person->decrement('next_invoice_number');
+                    }
                 }
             }
         });
+    }
+
+    /**
+     * Extract the series prefix from this invoice's number (everything before
+     * the final hyphen). Date ordering is enforced only within the same series.
+     */
+    public function invoicePrefix(): ?string
+    {
+        if (! $this->invoice_number) {
+            return null;
+        }
+        $pos = strrpos($this->invoice_number, '-');
+
+        return $pos === false ? null : substr($this->invoice_number, 0, $pos);
     }
 
     /**
@@ -144,9 +162,14 @@ class Invoice extends Model
             return;
         }
 
+        $prefix = $this->invoicePrefix();
+        if (! $prefix) {
+            return;
+        }
+
         $previous = static::query()
             ->where('person_id', $this->person_id)
-            ->whereNotNull('invoice_number')
+            ->where('invoice_number', 'like', $prefix.'-%')
             ->where('invoice_number', '<', $this->invoice_number)
             ->when($this->exists, fn ($q) => $q->where('id', '!=', $this->id))
             ->orderByDesc('invoice_number')
@@ -162,7 +185,7 @@ class Invoice extends Model
 
         $next = static::query()
             ->where('person_id', $this->person_id)
-            ->whereNotNull('invoice_number')
+            ->where('invoice_number', 'like', $prefix.'-%')
             ->where('invoice_number', '>', $this->invoice_number)
             ->when($this->exists, fn ($q) => $q->where('id', '!=', $this->id))
             ->orderBy('invoice_number')
@@ -280,9 +303,14 @@ class Invoice extends Model
             return;
         }
 
+        $prefix = $this->invoicePrefix();
+        if (! $prefix) {
+            return;
+        }
+
         $highest = static::query()
             ->where('person_id', $this->person_id)
-            ->whereNotNull('invoice_number')
+            ->where('invoice_number', 'like', $prefix.'-%')
             ->orderByDesc('invoice_number')
             ->first();
 

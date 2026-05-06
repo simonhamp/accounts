@@ -30,7 +30,7 @@ class PersonFactory extends Factory
             'cif' => null,
             'registro_mercantil' => null,
             'tax_regime' => \App\Enums\TaxRegime::PeninsulaBaleares,
-            'invoice_prefix' => strtoupper(fake()->unique()->lexify('??')),
+            'invoice_prefix' => strtoupper(fake()->unique()->lexify('???')),
             'next_invoice_number' => 1,
         ];
     }
