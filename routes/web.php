@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\BillController;
+use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\OtherIncomeController;
@@ -65,4 +66,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('other-incomes/{otherIncome}/original-pdf', [OtherIncomeController::class, 'showOriginalPdf'])
         ->name('other-incomes.original-pdf');
+
+    Route::get('documents/{document}/download', [DocumentController::class, 'download'])
+        ->name('documents.download');
 });

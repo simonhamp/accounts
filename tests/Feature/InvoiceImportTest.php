@@ -544,6 +544,63 @@ describe('Invoice Bank Account Relationship', function () {
     });
 });
 
+describe('Invoice Tax ID Warning', function () {
+    it('needs tax id when amount over 400 EUR and no tax id', function () {
+        $invoice = Invoice::factory()->create([
+            'customer_tax_id' => null,
+        ]);
+        // Set amount_eur directly to avoid model recalculation
+        Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 50000])); // €500
+
+        expect($invoice->fresh()->needsTaxId())->toBeTrue();
+    });
+
+    it('does not need tax id when amount is exactly 400 EUR', function () {
+        $invoice = Invoice::factory()->create([
+            'customer_tax_id' => null,
+        ]);
+        Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 40000])); // €400 exactly
+
+        expect($invoice->fresh()->needsTaxId())->toBeFalse();
+    });
+
+    it('does not need tax id when amount under 400 EUR', function () {
+        $invoice = Invoice::factory()->create([
+            'customer_tax_id' => null,
+        ]);
+        Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 30000])); // €300
+
+        expect($invoice->fresh()->needsTaxId())->toBeFalse();
+    });
+
+    it('does not need tax id when tax id is provided', function () {
+        $invoice = Invoice::factory()->create([
+            'customer_tax_id' => 'ES12345678A',
+        ]);
+        Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 50000])); // €500
+
+        expect($invoice->fresh()->needsTaxId())->toBeFalse();
+    });
+
+    it('does not need tax id when amount is null', function () {
+        $invoice = Invoice::factory()->create([
+            'customer_tax_id' => null,
+        ]);
+        Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => null]));
+
+        expect($invoice->fresh()->needsTaxId())->toBeFalse();
+    });
+
+    it('does not need tax id with empty string tax id and high amount', function () {
+        $invoice = Invoice::factory()->create([
+            'customer_tax_id' => '',
+        ]);
+        Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 50000])); // €500
+
+        expect($invoice->fresh()->needsTaxId())->toBeTrue();
+    });
+});
+
 describe('Invoice Modification Detection', function () {
     it('computes state hash on save', function () {
         $invoice = Invoice::factory()->create();

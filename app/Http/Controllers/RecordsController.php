@@ -6,6 +6,7 @@ use App\Enums\BillStatus;
 use App\Enums\InvoiceStatus;
 use App\Enums\OtherIncomeStatus;
 use App\Models\Bill;
+use App\Models\Document;
 use App\Models\Invoice;
 use App\Models\OtherIncome;
 use App\Models\Person;
@@ -34,12 +35,16 @@ class RecordsController extends Controller
         // Get all records for the selected person and year
         $records = $person && $year ? $this->getRecords($person, $year) : collect();
 
+        // Get shared documents for the selected year
+        $documents = $year ? $this->getDocuments($year) : collect();
+
         return view('records.index', [
             'people' => $people,
             'selectedPerson' => $person,
             'selectedYear' => $year,
             'years' => $years,
             'records' => $records,
+            'documents' => $documents,
         ]);
     }
 
@@ -148,5 +153,20 @@ class RecordsController extends Controller
             ->merge($bills)
             ->sortBy('date')
             ->values();
+    }
+
+    protected function getDocuments(int $year): Collection
+    {
+        return Document::forYear($year)
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(fn ($document) => [
+                'id' => $document->id,
+                'filename' => $document->original_filename,
+                'description' => $document->description,
+                'download_url' => route('documents.download', $document),
+                'created_at' => $document->created_at,
+            ])
+            ->toBase();
     }
 }

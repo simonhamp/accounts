@@ -27,6 +27,11 @@ return [
     'other_income' => 'Other Income',
     'bill' => 'Bill',
 
+    // Documents
+    'documents' => 'Documents',
+    'filename' => 'Filename',
+    'uploaded' => 'Uploaded',
+
     // Navigation
     'people' => 'People',
     'language' => 'Language',

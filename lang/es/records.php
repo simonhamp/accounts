@@ -25,6 +25,11 @@ return [
     'other_income' => 'Otros Ingresos',
     'bill' => 'Gasto',
 
+    // Documents
+    'documents' => 'Documentos',
+    'filename' => 'Nombre del archivo',
+    'uploaded' => 'Subido',
+
     // Navigation
     'people' => 'Personas',
     'language' => 'Idioma',

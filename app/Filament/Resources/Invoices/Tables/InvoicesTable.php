@@ -14,6 +14,7 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -35,6 +36,12 @@ class InvoicesTable
                     ->color(fn ($state) => $state?->color() ?? 'gray')
                     ->formatStateUsing(fn ($state) => $state?->label() ?? 'Unknown')
                     ->sortable(),
+                IconColumn::make('needs_tax_id')
+                    ->label('')
+                    ->state(fn ($record) => $record->needsTaxId())
+                    ->icon(fn ($state) => $state ? 'heroicon-o-exclamation-triangle' : null)
+                    ->color('warning')
+                    ->tooltip('Invoice over €400 - Customer Tax ID required'),
                 TextColumn::make('person.name')
                     ->placeholder('Unassigned')
                     ->searchable(),

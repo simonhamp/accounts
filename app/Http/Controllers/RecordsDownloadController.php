@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Bill;
+use App\Models\Document;
 use App\Models\Invoice;
 use App\Models\OtherIncome;
 use App\Models\Person;
@@ -37,6 +38,7 @@ class RecordsDownloadController extends Controller
         $zip->addEmptyDir('invoices');
         $zip->addEmptyDir('bills');
         $zip->addEmptyDir('other_income');
+        $zip->addEmptyDir('documents');
 
         foreach ($files as $file) {
             $filePath = Storage::disk('local')->path($file['path']);
@@ -114,6 +116,17 @@ class RecordsDownloadController extends Controller
                     'path' => $income->original_file_path,
                     'folder' => 'other_income',
                     'filename' => "{$date}_{$safeName}_{$income->id}.{$extension}",
+                ]);
+            });
+
+        // Get shared documents for the year
+        Document::forYear($year)
+            ->whereNotNull('file_path')
+            ->each(function ($document) use ($files) {
+                $files->push([
+                    'path' => $document->file_path,
+                    'folder' => 'documents',
+                    'filename' => $document->original_filename,
                 ]);
             });
 

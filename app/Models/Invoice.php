@@ -630,4 +630,12 @@ class Invoice extends Model
     {
         return $this->bank_account_id !== null;
     }
+
+    public function needsTaxId(): bool
+    {
+        // Invoices over €400 should have customer tax ID
+        $threshold = 40000; // €400 in cents
+
+        return ($this->amount_eur ?? 0) > $threshold && empty($this->customer_tax_id);
+    }
 }
