@@ -99,6 +99,12 @@ class Invoice extends Model
                 $invoice->total_amount = $invoice->tax_base_total + $invoice->tax_total - $invoice->irpf_amount;
             }
 
+            // Reallocate invoice number when an existing invoice is moved to a
+            // different Person whose prefix differs. The old number is
+            // abandoned (gap accepted) — we don't touch the previous Person's
+            // counter or any other invoices.
+            $invoice->reallocateNumberIfPersonChanged();
+
             // Enforce numerical/date ordering for newly-numbered invoices.
             $invoice->assertDateOrdering();
 
@@ -120,11 +126,14 @@ class Invoice extends Model
 
             // When the most recent invoice in a series is deleted, roll back
             // the Person's counter so the next allocation reuses the number.
+            // Skip when the invoice's prefix doesn't match the Person's
+            // current prefix — that means the invoice was moved here from a
+            // different series, so its number isn't tied to this counter.
             if ($invoice->person_id && $invoice->invoice_number) {
                 $person = $invoice->person;
                 $prefix = $invoice->invoicePrefix();
 
-                if ($person && $prefix) {
+                if ($person && $prefix && $prefix === $person->invoice_prefix) {
                     $highest = static::query()
                         ->where('person_id', $invoice->person_id)
                         ->where('invoice_number', 'like', $prefix.'-%')
@@ -151,6 +160,35 @@ class Invoice extends Model
         $pos = strrpos($this->invoice_number, '-');
 
         return $pos === false ? null : substr($this->invoice_number, 0, $pos);
+    }
+
+    /**
+     * Allocate a fresh invoice_number from the new Person's series when an
+     * existing invoice is reassigned to a Person with a different prefix.
+     * Does nothing for new (unsaved) invoices, invoices that don't yet have
+     * a number, or moves between Persons that share a prefix.
+     */
+    public function reallocateNumberIfPersonChanged(): void
+    {
+        if (! $this->exists || ! $this->isDirty('person_id')) {
+            return;
+        }
+
+        if (! $this->invoice_number || ! $this->person_id) {
+            return;
+        }
+
+        $newPerson = Person::find($this->person_id);
+
+        if (! $newPerson || ! $newPerson->invoice_prefix) {
+            return;
+        }
+
+        if ($this->invoicePrefix() === $newPerson->invoice_prefix) {
+            return;
+        }
+
+        $this->invoice_number = $newPerson->allocateNextInvoiceNumber();
     }
 
     /**
