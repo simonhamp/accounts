@@ -61,15 +61,15 @@ it('skips transactions that are not ready or already invoiced', function () {
     expect(Invoice::where('person_id', $person->id)->count())->toBe(0);
 });
 
-it('records failures without aborting subsequent transactions', function () {
+it('halts later transactions once an earlier one fails to invoice', function () {
     $person = Person::factory()->create([
         'invoice_prefix' => 'FAIL',
         'next_invoice_number' => 1,
     ]);
     $account = StripeAccount::factory()->create(['person_id' => $person->id]);
 
-    // A pre-existing invoice dated AFTER the next transaction would force
-    // a date-ordering failure on the first auto-generated invoice.
+    // A pre-existing invoice dated AFTER the first transaction forces
+    // assertDateOrdering to throw on the backdated one.
     Invoice::factory()->create([
         'person_id' => $person->id,
         'invoice_number' => 'FAIL-00001',
@@ -87,14 +87,65 @@ it('records failures without aborting subsequent transactions', function () {
     StripeTransaction::factory()->create([
         'stripe_account_id' => $account->id,
         'transaction_date' => '2027-02-01',
-        'description' => 'Forward-dated, should succeed',
+        'description' => 'Blocked because the earlier one is still unprocessed',
         'amount' => 5000,
         'status' => 'ready',
     ]);
 
     $result = app(InvoiceService::class)->generateInvoicesForReadyTransactions($account);
 
-    expect($result['failed'])->toBe(1);
-    expect($result['generated'])->toBe(1);
-    expect(Invoice::where('person_id', $person->id)->count())->toBe(2);
+    expect($result['failed'])->toBe(2);
+    expect($result['generated'])->toBe(0);
+    expect(Invoice::where('person_id', $person->id)->count())->toBe(1);
+});
+
+it('blocks invoice generation when an earlier transaction is pending review', function () {
+    $person = Person::factory()->create([
+        'invoice_prefix' => 'GAP',
+        'next_invoice_number' => 1,
+    ]);
+    $account = StripeAccount::factory()->create(['person_id' => $person->id]);
+
+    StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'transaction_date' => '2026-04-01',
+        'amount' => 3000,
+        'status' => 'pending_review',
+    ]);
+    $ready = StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'transaction_date' => '2026-04-15',
+        'amount' => 5000,
+        'status' => 'ready',
+    ]);
+
+    expect(fn () => app(InvoiceService::class)->generateInvoiceForTransaction($ready))
+        ->toThrow(\Exception::class, 'earlier transaction');
+
+    expect(Invoice::count())->toBe(0);
+});
+
+it('allows invoice generation when the earlier transaction is ignored', function () {
+    $person = Person::factory()->create([
+        'invoice_prefix' => 'OK',
+        'next_invoice_number' => 1,
+    ]);
+    $account = StripeAccount::factory()->create(['person_id' => $person->id]);
+
+    StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'transaction_date' => '2026-04-01',
+        'amount' => 3000,
+        'status' => 'ignored',
+    ]);
+    $ready = StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'transaction_date' => '2026-04-15',
+        'amount' => 5000,
+        'status' => 'ready',
+    ]);
+
+    $invoice = app(InvoiceService::class)->generateInvoiceForTransaction($ready);
+
+    expect($invoice->invoice_number)->toBe('OK-00001');
 });

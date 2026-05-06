@@ -72,8 +72,8 @@ class InvoiceService
             throw new \Exception('Cannot generate invoice: transaction is marked as ignored.');
         }
 
-        if (! $transaction->isReady()) {
-            throw new \Exception('Cannot generate invoice: transaction must be marked as "Ready".');
+        if ($transaction->hasPriorUnprocessedTransactions()) {
+            throw new \Exception('Cannot generate invoice: an earlier transaction for this person is still unprocessed. Process or ignore it first.');
         }
 
         $transaction->load('stripeAccount.person');
