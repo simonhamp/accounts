@@ -26,6 +26,14 @@ class DocumentForm
             ->components([
                 Section::make('Document Details')
                     ->components([
+                        Select::make('person_id')
+                            ->label('Person')
+                            ->relationship('person', 'name')
+                            ->searchable()
+                            ->preload()
+                            ->required()
+                            ->default(fn () => \App\Models\Person::default()?->id),
+
                         FileUpload::make('file_path')
                             ->label('File')
                             ->disk('local')
@@ -48,6 +56,25 @@ class DocumentForm
                             ->options($years)
                             ->default($currentYear)
                             ->required(),
+
+                        Select::make('month')
+                            ->label('Month')
+                            ->options([
+                                1 => 'January',
+                                2 => 'February',
+                                3 => 'March',
+                                4 => 'April',
+                                5 => 'May',
+                                6 => 'June',
+                                7 => 'July',
+                                8 => 'August',
+                                9 => 'September',
+                                10 => 'October',
+                                11 => 'November',
+                                12 => 'December',
+                            ])
+                            ->placeholder('All year')
+                            ->helperText('Optional. Leave empty for documents that apply to the whole year.'),
 
                         Textarea::make('description')
                             ->label('Description')

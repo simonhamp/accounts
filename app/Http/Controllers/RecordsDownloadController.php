@@ -134,18 +134,24 @@ class RecordsDownloadController extends Controller
                 ]);
             });
 
-        // Get shared documents — only when downloading the whole year
-        if ($month === null) {
-            Document::forYear($year)
-                ->whereNotNull('file_path')
-                ->each(function ($document) use ($files) {
-                    $files->push([
-                        'path' => $document->file_path,
-                        'folder' => 'documents',
-                        'filename' => $document->original_filename,
-                    ]);
-                });
+        // Get documents for this person.
+        // For full-year downloads include all docs; for month downloads include only docs tagged with that month.
+        $documentQuery = Document::forYear($year)
+            ->forPerson($person->id)
+            ->whereNotNull('file_path');
+
+        if ($month !== null) {
+            $monthNumber = (int) substr($month, -2);
+            $documentQuery->where('month', $monthNumber);
         }
+
+        $documentQuery->each(function ($document) use ($files) {
+            $files->push([
+                'path' => $document->file_path,
+                'folder' => 'documents',
+                'filename' => $document->original_filename,
+            ]);
+        });
 
         return $files;
     }
