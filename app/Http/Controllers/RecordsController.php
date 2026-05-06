@@ -17,7 +17,9 @@ class RecordsController extends Controller
 {
     public function index(?int $personId = null, ?int $year = null): View
     {
-        $people = Person::orderBy('name')->get();
+        $people = Person::orderBy('name')->get()
+            ->sortByDesc(fn (Person $person) => $person->isLegalEntity())
+            ->values();
 
         if (! $personId && $people->isNotEmpty()) {
             $personId = $people->first()->id;

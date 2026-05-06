@@ -7,17 +7,38 @@
         <flux:sidebar sticky stashable class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
             <flux:sidebar.toggle class="lg:hidden" icon="x-mark" />
 
+            @php
+                $groupedPeople = \App\Models\Person::orderBy('name')->get()->groupBy(
+                    fn ($person) => $person->isLegalEntity() ? 'businesses' : 'individuals'
+                );
+            @endphp
+
             <flux:navlist variant="outline">
-                <flux:navlist.group :heading="__('records.people')" class="grid">
-                    @foreach(\App\Models\Person::orderBy('name')->get() as $person)
-                        <flux:navlist.item
-                            icon="user"
-                            :href="route('records.index', ['person' => $person->id])"
-                            :current="request()->routeIs('records.index') && request()->route('person') == $person->id"
-                            wire:navigate
-                        >{{ $person->name }}</flux:navlist.item>
-                    @endforeach
-                </flux:navlist.group>
+                @if($groupedPeople->has('businesses'))
+                    <flux:navlist.group :heading="__('records.businesses')" class="grid">
+                        @foreach($groupedPeople->get('businesses') as $person)
+                            <flux:navlist.item
+                                icon="building-office"
+                                :href="route('records.index', ['person' => $person->id])"
+                                :current="request()->routeIs('records.index') && request()->route('person') == $person->id"
+                                wire:navigate
+                            >{{ $person->name }}</flux:navlist.item>
+                        @endforeach
+                    </flux:navlist.group>
+                @endif
+
+                @if($groupedPeople->has('individuals'))
+                    <flux:navlist.group :heading="__('records.individuals')" class="grid {{ $groupedPeople->has('businesses') ? 'mt-4' : '' }}">
+                        @foreach($groupedPeople->get('individuals') as $person)
+                            <flux:navlist.item
+                                icon="user"
+                                :href="route('records.index', ['person' => $person->id])"
+                                :current="request()->routeIs('records.index') && request()->route('person') == $person->id"
+                                wire:navigate
+                            >{{ $person->name }}</flux:navlist.item>
+                        @endforeach
+                    </flux:navlist.group>
+                @endif
 
                 <flux:navlist.group :heading="__('records.language')" class="grid mt-4">
                     <flux:navlist.item
