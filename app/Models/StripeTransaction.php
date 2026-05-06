@@ -88,7 +88,39 @@ class StripeTransaction extends Model
 
     public function canGenerateInvoice(): bool
     {
-        return $this->isReady() && ! $this->isProcessed();
+        return ! $this->isIgnored() && ! $this->isProcessed();
+    }
+
+    /**
+     * True when an earlier transaction belonging to the same person still
+     * needs handling — i.e. it isn't ignored and hasn't been turned into an
+     * invoice or other-income record. Optionally treat the given IDs as
+     * already accounted for (e.g. members of a bulk selection).
+     *
+     * @param  array<int>  $excludeIds
+     */
+    public function hasPriorUnprocessedTransactions(array $excludeIds = []): bool
+    {
+        $personId = $this->stripeAccount?->person_id;
+
+        if ($personId === null || $this->transaction_date === null) {
+            return false;
+        }
+
+        return static::query()
+            ->whereHas('stripeAccount', fn ($q) => $q->where('person_id', $personId))
+            ->where('status', '!=', 'ignored')
+            ->whereDoesntHave('invoiceItem')
+            ->whereDoesntHave('otherIncome')
+            ->where(function ($q) {
+                $q->where('transaction_date', '<', $this->transaction_date)
+                    ->orWhere(function ($q2) {
+                        $q2->where('transaction_date', '=', $this->transaction_date)
+                            ->where('id', '<', $this->id);
+                    });
+            })
+            ->when(! empty($excludeIds), fn ($q) => $q->whereNotIn('id', $excludeIds))
+            ->exists();
     }
 
     public function canConvertToOtherIncome(): bool
