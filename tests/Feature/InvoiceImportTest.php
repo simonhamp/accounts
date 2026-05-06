@@ -644,6 +644,39 @@ describe('Invoice Modification Detection', function () {
         expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
     });
 
+    it('detects modification when is_simplified changes', function () {
+        $invoice = Invoice::factory()->create([
+            'is_simplified' => false,
+            'total_amount' => 10000,
+            'amount_eur' => 10000,
+            'currency' => 'EUR',
+            'customer_name' => 'Customer',
+            'customer_address' => 'Address',
+            'customer_tax_id' => 'TAX123',
+            'generated_at' => now(),
+        ]);
+        $invoice->update(['generated_state_hash' => $invoice->current_state_hash]);
+
+        $invoice->update(['is_simplified' => true]);
+
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
+    });
+
+    it('detects modification when person changes', function () {
+        $original = Person::factory()->create();
+        $other = Person::factory()->create();
+
+        $invoice = Invoice::factory()->create([
+            'person_id' => $original->id,
+            'generated_at' => now(),
+        ]);
+        $invoice->update(['generated_state_hash' => $invoice->current_state_hash]);
+
+        $invoice->update(['person_id' => $other->id]);
+
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
+    });
+
     it('detects modification when invoice date changes', function () {
         $invoice = Invoice::factory()->create([
             'invoice_date' => '2025-01-01',
