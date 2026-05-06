@@ -22,7 +22,6 @@ class Person extends Model
         'dni_nie',
         'cif',
         'registro_mercantil',
-        'share_capital',
         'tax_regime',
         'invoice_prefix',
         'next_invoice_number',
@@ -35,7 +34,6 @@ class Person extends Model
             'next_invoice_number' => 'integer',
             'entity_type' => EntityType::class,
             'tax_regime' => TaxRegime::class,
-            'share_capital' => 'integer',
             'is_default' => 'boolean',
         ];
     }
@@ -90,5 +88,23 @@ class Person extends Model
     public function incrementInvoiceNumber(): void
     {
         $this->increment('next_invoice_number');
+    }
+
+    /**
+     * Atomically allocate the next invoice number, locking the Person row to
+     * prevent concurrent saves from picking the same number.
+     *
+     * Must be called inside a database transaction.
+     */
+    public function allocateNextInvoiceNumber(): string
+    {
+        $locked = static::query()->lockForUpdate()->findOrFail($this->id);
+        $number = str_pad((string) $locked->next_invoice_number, 5, '0', STR_PAD_LEFT);
+        $allocated = "{$locked->invoice_prefix}-{$number}";
+
+        $locked->increment('next_invoice_number');
+        $this->next_invoice_number = $locked->next_invoice_number;
+
+        return $allocated;
     }
 }

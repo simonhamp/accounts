@@ -12,8 +12,7 @@ return new class extends Migration
             $table->string('entity_type')->default('individual')->after('country');
             $table->string('cif')->nullable()->after('dni_nie');
             $table->text('registro_mercantil')->nullable()->after('cif');
-            $table->unsignedBigInteger('share_capital')->nullable()->after('registro_mercantil');
-            $table->string('tax_regime')->default('peninsula_baleares')->after('share_capital');
+            $table->string('tax_regime')->default('peninsula_baleares')->after('registro_mercantil');
         });
 
         Schema::table('people', function (Blueprint $table) {
@@ -32,7 +31,6 @@ return new class extends Migration
                 'entity_type',
                 'cif',
                 'registro_mercantil',
-                'share_capital',
                 'tax_regime',
             ]);
         });

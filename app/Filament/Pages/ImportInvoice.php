@@ -31,6 +31,11 @@ class ImportInvoice extends Page implements HasForms
 
     protected string $view = 'filament.pages.import-invoice';
 
+    public static function canAccess(): bool
+    {
+        return false;
+    }
+
     public ?array $data = [];
 
     public bool $showExtractedData = false;

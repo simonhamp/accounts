@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-    <title>{{ $invoice->isCreditNote() ? 'Credit Note' : 'Invoice' }} {{ $invoice->invoice_number }}</title>
+    <title>{{ $invoice->isCreditNote() ? 'Credit Note' : ($invoice->is_simplified ? 'Simplified Invoice' : 'Invoice') }} {{ $invoice->invoice_number }}</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -211,7 +211,7 @@
     <div class="header">
         <div class="header-grid">
             <div class="header-left">
-                <h1>{{ $invoice->isCreditNote() ? 'CREDIT NOTE' : 'INVOICE' }}</h1>
+                <h1>{{ $invoice->isCreditNote() ? 'CREDIT NOTE' : ($invoice->is_simplified ? 'SIMPLIFIED INVOICE' : 'INVOICE') }}</h1>
                 <p><strong>No:</strong> {{ $invoice->invoice_number }}</p>
                 <p><strong>Date:</strong> {{ $invoice->invoice_date->format('d/m/Y') }}</p>
                 <p><strong>Due:</strong> {{ $invoice->due_date ? $invoice->due_date->format('d/m/Y') : 'Due on Receipt' }}</p>
@@ -235,6 +235,19 @@
         $displayCustomerName = $invoice->customer_name ?: $invoice->customer?->name;
         $displayCustomerAddress = $invoice->customer_address ?: $invoice->customer?->address;
     @endphp
+    @if($invoice->is_simplified)
+        @if($displayCustomerName)
+        <div class="section">
+            <div class="section-title">CUSTOMER</div>
+            <div class="details">
+                <strong>{{ $displayCustomerName }}</strong><br>
+                @if($invoice->customer_tax_id)
+                    <strong>Tax ID:</strong> {{ $invoice->customer_tax_id }}<br>
+                @endif
+            </div>
+        </div>
+        @endif
+    @else
     <div class="section">
         <div class="section-title">BILL TO</div>
         <div class="details">
@@ -247,6 +260,7 @@
             @endif
         </div>
     </div>
+    @endif
 
     @php
         $showTaxColumn = $invoice->hasTaxBreakdown();
@@ -363,9 +377,6 @@
         @if($invoice->person->isLegalEntity())
             @if($invoice->person->registro_mercantil)
                 <p>{{ $invoice->person->registro_mercantil }}</p>
-            @endif
-            @if($invoice->person->share_capital)
-                <p>Share Capital: {{ number_format($invoice->person->share_capital / 100, 2, '.', ',') }} EUR</p>
             @endif
             @if($invoice->person->cif)
                 <p>CIF: {{ $invoice->person->cif }}</p>

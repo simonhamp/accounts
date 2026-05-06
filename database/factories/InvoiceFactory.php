@@ -35,7 +35,16 @@ class InvoiceFactory extends Factory
             'total_amount' => fake()->numberBetween(1000, 100000),
             'currency' => 'EUR',
             'status' => InvoiceStatus::ReadyToSend,
+            'is_simplified' => false,
         ];
+    }
+
+    public function simplified(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_simplified' => true,
+            'total_amount' => fake()->numberBetween(100, 39999),
+        ]);
     }
 
     public function pending(): static

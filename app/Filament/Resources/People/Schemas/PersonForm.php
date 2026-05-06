@@ -12,6 +12,30 @@ use Filament\Schemas\Schema;
 
 class PersonForm
 {
+    /**
+     * Normalize the form-state value to an EntityType enum, since Filament
+     * may pass either the enum instance (when filled from a cast model) or
+     * the string value (when the Select dehydrates a freshly-picked option).
+     */
+    private static function entityType(callable $get): ?EntityType
+    {
+        $value = $get('entity_type');
+
+        if ($value instanceof EntityType) {
+            return $value;
+        }
+
+        return is_string($value) ? EntityType::tryFrom($value) : null;
+    }
+
+    private static function isLegalEntity(callable $get): bool
+    {
+        return in_array(self::entityType($get), [
+            EntityType::SociedadLimitada,
+            EntityType::SociedadAnonima,
+        ], strict: true);
+    }
+
     public static function configure(Schema $schema): Schema
     {
         return $schema
@@ -35,29 +59,15 @@ class PersonForm
                     ->live(),
                 TextInput::make('dni_nie')
                     ->label('DNI/NIE')
-                    ->visible(fn ($get) => $get('entity_type') === EntityType::Individual->value),
+                    ->visible(fn (callable $get) => self::entityType($get) === EntityType::Individual),
                 TextInput::make('cif')
                     ->label('CIF')
-                    ->visible(fn ($get) => in_array($get('entity_type'), [
-                        EntityType::SociedadLimitada->value,
-                        EntityType::SociedadAnonima->value,
-                    ])),
+                    ->visible(fn (callable $get) => self::isLegalEntity($get)),
                 Textarea::make('registro_mercantil')
                     ->label('Registro Mercantil')
                     ->helperText('e.g. Inscrita en el Registro Mercantil de Las Palmas, Tomo X, Folio Y, Hoja Z')
                     ->columnSpanFull()
-                    ->visible(fn ($get) => in_array($get('entity_type'), [
-                        EntityType::SociedadLimitada->value,
-                        EntityType::SociedadAnonima->value,
-                    ])),
-                TextInput::make('share_capital')
-                    ->label('Share Capital (cents)')
-                    ->numeric()
-                    ->helperText('Capital social desembolsado, in cents (e.g. 300000 = 3.000€)')
-                    ->visible(fn ($get) => in_array($get('entity_type'), [
-                        EntityType::SociedadLimitada->value,
-                        EntityType::SociedadAnonima->value,
-                    ])),
+                    ->visible(fn (callable $get) => self::isLegalEntity($get)),
                 Select::make('tax_regime')
                     ->options(TaxRegime::class)
                     ->default(TaxRegime::PeninsulaBaleares)

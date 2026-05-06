@@ -29,7 +29,6 @@ class PersonFactory extends Factory
             'dni_nie' => fake()->bothify('??######?'),
             'cif' => null,
             'registro_mercantil' => null,
-            'share_capital' => null,
             'tax_regime' => \App\Enums\TaxRegime::PeninsulaBaleares,
             'invoice_prefix' => strtoupper(fake()->unique()->lexify('??')),
             'next_invoice_number' => 1,
@@ -43,7 +42,6 @@ class PersonFactory extends Factory
             'dni_nie' => null,
             'cif' => 'B'.fake()->numerify('########'),
             'registro_mercantil' => 'Inscrita en el Registro Mercantil de '.fake()->city().', Tomo 1, Folio 1, Hoja 1',
-            'share_capital' => 300000,
         ]);
     }
 

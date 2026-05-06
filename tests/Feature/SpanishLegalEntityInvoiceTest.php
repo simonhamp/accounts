@@ -2,12 +2,15 @@
 
 use App\Enums\CustomerTaxRegion;
 use App\Enums\EntityType;
+use App\Enums\InvoiceStatus;
 use App\Enums\TaxRegime;
 use App\Enums\TaxType;
+use App\Exceptions\InvoiceOrderingException;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Person;
+use Illuminate\Support\Facades\DB;
 
 it('stores Spanish legal entity fields on a Person', function () {
     $person = Person::factory()->sociedadLimitada()->canarias()->create([
@@ -150,7 +153,6 @@ it('renders CIF, Registro Mercantil and IGIC on a Spanish PDF for a legal entity
         'name' => 'Sinoperro',
         'cif' => 'B12345678',
         'registro_mercantil' => 'Inscrita en el Registro Mercantil de Las Palmas, Tomo 1, Folio 1, Hoja 1',
-        'share_capital' => 300000,
     ]);
 
     $invoice = Invoice::factory()->create([
@@ -178,7 +180,6 @@ it('renders CIF, Registro Mercantil and IGIC on a Spanish PDF for a legal entity
     expect($html)->toContain('Sinoperro, S.L.');
     expect($html)->toContain('CIF: B12345678');
     expect($html)->toContain('Registro Mercantil de Las Palmas');
-    expect($html)->toContain('Capital Social: 3.000,00 EUR');
     expect($html)->toContain('IGIC 7%');
     expect($html)->toContain('Base Imponible');
 });
@@ -312,5 +313,269 @@ it('renders without tax breakdown for an individual with no tax on items', funct
 
     expect($html)->toContain('DNI/NIE: X1234567Y');
     expect($html)->not->toContain('Base Imponible');
-    expect($html)->not->toContain('Capital Social');
+});
+
+it('Person::allocateNextInvoiceNumber atomically allocates and increments', function () {
+    $person = Person::factory()->create([
+        'invoice_prefix' => 'TST',
+        'next_invoice_number' => 1,
+    ]);
+
+    DB::transaction(fn () => $person->allocateNextInvoiceNumber());
+    DB::transaction(fn () => $person->allocateNextInvoiceNumber());
+    $third = DB::transaction(fn () => $person->allocateNextInvoiceNumber());
+
+    expect($third)->toBe('TST-00003');
+    expect($person->fresh()->next_invoice_number)->toBe(4);
+});
+
+it('rejects an invoice dated before the previous-numbered one for the same Person', function () {
+    $person = Person::factory()->create();
+
+    Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'invoice_date' => '2026-03-01',
+    ]);
+
+    $second = Invoice::factory()->make([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00002',
+        'invoice_date' => '2026-02-15',
+    ]);
+
+    expect(fn () => $second->save())->toThrow(InvoiceOrderingException::class);
+});
+
+it('accepts an invoice dated the same day as the previous-numbered one', function () {
+    $person = Person::factory()->create();
+
+    Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'invoice_date' => '2026-03-01',
+    ]);
+
+    $second = Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00002',
+        'invoice_date' => '2026-03-01',
+    ]);
+
+    expect($second->id)->not->toBeNull();
+});
+
+it('refuses to delete a finalized invoice', function () {
+    $person = Person::factory()->create();
+    $invoice = Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'status' => InvoiceStatus::Sent,
+    ]);
+
+    expect(fn () => $invoice->delete())->toThrow(InvoiceOrderingException::class);
+    expect(Invoice::find($invoice->id))->not->toBeNull();
+});
+
+it('refuses to delete a non-most-recent pending invoice (would leave a gap)', function () {
+    $person = Person::factory()->create();
+    $first = Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'invoice_date' => '2026-01-01',
+        'status' => InvoiceStatus::Reviewed,
+    ]);
+    Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00002',
+        'invoice_date' => '2026-02-01',
+        'status' => InvoiceStatus::Reviewed,
+    ]);
+
+    expect(fn () => $first->delete())->toThrow(InvoiceOrderingException::class);
+});
+
+it('allows deletion of the highest-numbered pending invoice and rolls back the counter', function () {
+    $person = Person::factory()->create([
+        'invoice_prefix' => 'AAA',
+        'next_invoice_number' => 3,
+    ]);
+    Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => 'AAA-00001',
+        'invoice_date' => '2026-01-01',
+        'status' => InvoiceStatus::Reviewed,
+    ]);
+    $second = Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => 'AAA-00002',
+        'invoice_date' => '2026-02-01',
+        'status' => InvoiceStatus::Reviewed,
+    ]);
+
+    $second->delete();
+
+    expect($person->fresh()->next_invoice_number)->toBe(2);
+});
+
+it('refuses to mark an invoice as simplified above the €400 threshold', function () {
+    $person = Person::factory()->create();
+
+    $invoice = Invoice::factory()->make([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'invoice_date' => '2026-04-01',
+        'total_amount' => 50000,
+        'currency' => 'EUR',
+        'amount_eur' => 50000,
+        'is_simplified' => true,
+    ]);
+
+    expect(fn () => $invoice->save())->toThrow(InvoiceOrderingException::class);
+});
+
+it('allows a simplified invoice at or under the €400 threshold', function () {
+    $person = Person::factory()->create();
+
+    $invoice = Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'invoice_date' => '2026-04-01',
+        'total_amount' => 39999,
+        'currency' => 'EUR',
+        'amount_eur' => 39999,
+        'is_simplified' => true,
+    ]);
+
+    expect($invoice->is_simplified)->toBeTrue();
+    expect($invoice->isAboveSimplifiedThreshold())->toBeFalse();
+});
+
+it('blocks finalization of a full invoice over €400 with missing customer details', function () {
+    $person = Person::factory()->create();
+
+    $invoice = Invoice::factory()->make([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'invoice_date' => '2026-04-01',
+        'total_amount' => 50000,
+        'currency' => 'EUR',
+        'amount_eur' => 50000,
+        'is_simplified' => false,
+        'status' => InvoiceStatus::ReadyToSend,
+        'customer_name' => null,
+        'customer_address' => null,
+        'customer_tax_id' => null,
+    ]);
+
+    expect(fn () => $invoice->save())->toThrow(InvoiceOrderingException::class);
+});
+
+it('allows a draft full invoice over €400 with incomplete customer details', function () {
+    $person = Person::factory()->create();
+
+    $invoice = Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'invoice_date' => '2026-04-01',
+        'total_amount' => 50000,
+        'currency' => 'EUR',
+        'amount_eur' => 50000,
+        'is_simplified' => false,
+        'status' => InvoiceStatus::Reviewed,
+        'customer_name' => 'Acme',
+        'customer_address' => null,
+        'customer_tax_id' => null,
+    ]);
+
+    expect($invoice->id)->not->toBeNull();
+    expect($invoice->missingFullInvoiceCustomerFields())->toContain('customer address', 'customer tax ID');
+});
+
+it('renders FACTURA SIMPLIFICADA heading and omits address section', function () {
+    $person = Person::factory()->sociedadLimitada()->canarias()->create();
+
+    $invoice = Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => 'SP-00010',
+        'invoice_date' => '2026-04-01',
+        'total_amount' => 10000,
+        'currency' => 'EUR',
+        'amount_eur' => 10000,
+        'customer_name' => 'Jane Customer',
+        'customer_address' => null,
+        'customer_tax_id' => null,
+        'is_simplified' => true,
+    ]);
+
+    InvoiceItem::create([
+        'invoice_id' => $invoice->id,
+        'description' => 'Pro plan',
+        'quantity' => 1,
+        'unit_price' => 10000,
+        'total' => 10000,
+    ]);
+
+    $invoice->save();
+    $invoice->load(['person', 'items', 'bankAccount']);
+
+    $htmlEs = view('invoices.pdf-es', ['invoice' => $invoice])->render();
+    $htmlEn = view('invoices.pdf-en', ['invoice' => $invoice])->render();
+
+    expect($htmlEs)->toContain('FACTURA SIMPLIFICADA');
+    expect($htmlEs)->not->toContain('DATOS DEL CLIENTE');
+    expect($htmlEs)->toContain('Jane Customer');
+    expect($htmlEn)->toContain('SIMPLIFIED INVOICE');
+    expect($htmlEn)->not->toContain('BILL TO');
+});
+
+it('classifies a Stripe transaction under €400 as a simplified invoice', function () {
+    $person = Person::factory()->create([
+        'invoice_prefix' => 'SIM',
+        'next_invoice_number' => 1,
+    ]);
+    $account = \App\Models\StripeAccount::factory()->create(['person_id' => $person->id]);
+
+    \App\Models\StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'transaction_date' => '2026-04-01',
+        'amount' => 25000,
+        'currency' => 'EUR',
+        'description' => 'Subscription',
+        'customer_name' => null,
+        'customer_email' => 'someone@example.com',
+        'status' => 'ready',
+    ]);
+
+    $result = app(\App\Services\InvoiceService::class)->generateInvoicesForReadyTransactions($account);
+
+    expect($result['generated'])->toBe(1);
+
+    $invoice = Invoice::where('person_id', $person->id)->first();
+    expect($invoice->is_simplified)->toBeTrue();
+});
+
+it('classifies a Stripe transaction over €400 as a full invoice', function () {
+    $person = Person::factory()->create([
+        'invoice_prefix' => 'FUL',
+        'next_invoice_number' => 1,
+    ]);
+    $account = \App\Models\StripeAccount::factory()->create(['person_id' => $person->id]);
+
+    \App\Models\StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'transaction_date' => '2026-04-01',
+        'amount' => 60000,
+        'currency' => 'EUR',
+        'description' => 'Enterprise plan',
+        'customer_name' => 'BigCo',
+        'status' => 'ready',
+    ]);
+
+    $result = app(\App\Services\InvoiceService::class)->generateInvoicesForReadyTransactions($account);
+
+    expect($result['generated'])->toBe(1);
+
+    $invoice = Invoice::where('person_id', $person->id)->first();
+    expect($invoice->is_simplified)->toBeFalse();
 });
