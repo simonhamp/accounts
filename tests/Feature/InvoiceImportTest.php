@@ -548,6 +548,7 @@ describe('Invoice Tax ID Warning', function () {
     it('needs tax id when amount over 400 EUR and no tax id', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => null,
+            'total_amount' => 100,
         ]);
         // Set amount_eur directly to avoid model recalculation
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 50000])); // €500
@@ -558,6 +559,7 @@ describe('Invoice Tax ID Warning', function () {
     it('does not need tax id when amount is exactly 400 EUR', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => null,
+            'total_amount' => 100,
         ]);
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 40000])); // €400 exactly
 
@@ -567,6 +569,7 @@ describe('Invoice Tax ID Warning', function () {
     it('does not need tax id when amount under 400 EUR', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => null,
+            'total_amount' => 100,
         ]);
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 30000])); // €300
 
@@ -585,6 +588,7 @@ describe('Invoice Tax ID Warning', function () {
     it('does not need tax id when amount is null', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => null,
+            'total_amount' => 100,
         ]);
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => null]));
 
@@ -594,6 +598,7 @@ describe('Invoice Tax ID Warning', function () {
     it('does not need tax id with empty string tax id and high amount', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => '',
+            'total_amount' => 100,
         ]);
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 50000])); // €500
 
