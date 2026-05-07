@@ -22,6 +22,10 @@ class DocumentsTable
 
         return $table
             ->columns([
+                TextColumn::make('person.name')
+                    ->label('Person')
+                    ->searchable()
+                    ->sortable(),
                 TextColumn::make('original_filename')
                     ->label('Filename')
                     ->searchable()
@@ -32,12 +36,21 @@ class DocumentsTable
                     ->placeholder('No description'),
                 TextColumn::make('year')
                     ->sortable(),
+                TextColumn::make('month')
+                    ->formatStateUsing(fn ($state) => $state
+                        ? \Carbon\Carbon::create()->month((int) $state)->translatedFormat('F')
+                        : null)
+                    ->placeholder('All year')
+                    ->sortable(),
                 TextColumn::make('created_at')
                     ->label('Uploaded')
                     ->dateTime()
                     ->sortable(),
             ])
             ->filters([
+                SelectFilter::make('person_id')
+                    ->label('Person')
+                    ->relationship('person', 'name'),
                 SelectFilter::make('year')
                     ->options($years),
             ])

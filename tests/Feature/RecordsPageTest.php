@@ -145,7 +145,9 @@ it('downloads only files from the requested month when month is set', function (
         'original_file_path' => 'bills/apr.pdf',
     ]);
     Document::factory()->create([
+        'person_id' => $person->id,
         'year' => 2026,
+        'month' => null,
         'file_path' => 'documents/yearly.pdf',
         'original_filename' => 'yearly.pdf',
     ]);
@@ -175,4 +177,70 @@ it('downloads only files from the requested month when month is set', function (
     expect(implode('|', $billEntries))->toContain('2026-04-10');
     expect(implode('|', $billEntries))->not->toContain('2026-02-10');
     expect($documentEntries)->toBeEmpty();
+});
+
+it('includes month-tagged documents when downloading a specific month', function () {
+    Storage::fake('local');
+    Storage::disk('local')->put('documents/april-doc.pdf', 'april');
+    Storage::disk('local')->put('documents/february-doc.pdf', 'february');
+    Storage::disk('local')->put('documents/yearly.pdf', 'yearly');
+
+    $person = Person::factory()->sociedadLimitada()->canarias()->create([
+        'invoice_prefix' => 'SLD',
+    ]);
+
+    Invoice::factory()->paid()->create([
+        'person_id' => $person->id,
+        'invoice_number' => 'SLD-00001',
+        'invoice_date' => '2026-04-12',
+        'total_amount' => 10000,
+        'amount_eur' => 10000,
+        'currency' => 'EUR',
+    ]);
+
+    Document::factory()->create([
+        'person_id' => $person->id,
+        'year' => 2026,
+        'month' => 4,
+        'file_path' => 'documents/april-doc.pdf',
+        'original_filename' => 'april-doc.pdf',
+    ]);
+    Document::factory()->create([
+        'person_id' => $person->id,
+        'year' => 2026,
+        'month' => 2,
+        'file_path' => 'documents/february-doc.pdf',
+        'original_filename' => 'february-doc.pdf',
+    ]);
+    Document::factory()->create([
+        'person_id' => $person->id,
+        'year' => 2026,
+        'month' => null,
+        'file_path' => 'documents/yearly.pdf',
+        'original_filename' => 'yearly.pdf',
+    ]);
+
+    $response = $this->get(route('records.download', ['person' => $person->id, 'year' => 2026]).'?month=2026-04');
+
+    $response->assertOk();
+
+    $tempDir = sys_get_temp_dir();
+    $tempFile = tempnam($tempDir, 'zip');
+    file_put_contents($tempFile, $response->streamedContent());
+
+    $zip = new ZipArchive;
+    expect($zip->open($tempFile))->toBeTrue();
+
+    $names = [];
+    for ($i = 0; $i < $zip->numFiles; $i++) {
+        $names[] = $zip->getNameIndex($i);
+    }
+    $zip->close();
+    @unlink($tempFile);
+
+    $documentEntries = array_filter($names, fn ($n) => str_starts_with($n, 'documents/') && ! str_ends_with($n, '/'));
+
+    expect(implode('|', $documentEntries))->toContain('april-doc.pdf');
+    expect(implode('|', $documentEntries))->not->toContain('february-doc.pdf');
+    expect(implode('|', $documentEntries))->not->toContain('yearly.pdf');
 });

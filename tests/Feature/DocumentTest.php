@@ -96,6 +96,7 @@ describe('Records Page Documents', function () {
         ]);
 
         Document::factory()->create([
+            'person_id' => $person->id,
             'original_filename' => 'tax-summary.pdf',
             'description' => 'Tax Summary 2025',
             'year' => 2025,
@@ -123,11 +124,13 @@ describe('Records Page Documents', function () {
         ]);
 
         Document::factory()->create([
+            'person_id' => $person->id,
             'original_filename' => 'doc-2024.pdf',
             'year' => 2024,
         ]);
 
         Document::factory()->create([
+            'person_id' => $person->id,
             'original_filename' => 'doc-2025.pdf',
             'year' => 2025,
         ]);
@@ -137,5 +140,78 @@ describe('Records Page Documents', function () {
             ->assertOk()
             ->assertSee('doc-2025.pdf')
             ->assertDontSee('doc-2024.pdf');
+    });
+
+    it('shows month-tagged documents inside their monthly tab for legal entities', function () {
+        $person = Person::factory()->sociedadLimitada()->canarias()->create([
+            'invoice_prefix' => 'SLM',
+        ]);
+        $user = User::factory()->create();
+
+        Invoice::factory()->paid()->create([
+            'person_id' => $person->id,
+            'invoice_number' => 'SLM-00001',
+            'invoice_date' => '2026-02-15',
+            'total_amount' => 10000,
+            'amount_eur' => 10000,
+            'currency' => 'EUR',
+        ]);
+        Invoice::factory()->paid()->create([
+            'person_id' => $person->id,
+            'invoice_number' => 'SLM-00002',
+            'invoice_date' => '2026-04-15',
+            'total_amount' => 10000,
+            'amount_eur' => 10000,
+            'currency' => 'EUR',
+        ]);
+
+        Document::factory()->create([
+            'person_id' => $person->id,
+            'year' => 2026,
+            'month' => 4,
+            'original_filename' => 'april-statement.pdf',
+        ]);
+        Document::factory()->create([
+            'person_id' => $person->id,
+            'year' => 2026,
+            'month' => null,
+            'original_filename' => 'yearly-summary.pdf',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get(route('records.index', ['person' => $person->id, 'year' => 2026]));
+
+        $response->assertOk()
+            ->assertSee('april-statement.pdf')
+            ->assertSee('yearly-summary.pdf');
+    });
+
+    it('only shows documents belonging to the selected person', function () {
+        $personA = Person::factory()->create();
+        $personB = Person::factory()->create();
+        $user = User::factory()->create();
+
+        Invoice::factory()->create([
+            'person_id' => $personA->id,
+            'invoice_date' => '2025-06-15',
+        ]);
+
+        Document::factory()->create([
+            'person_id' => $personA->id,
+            'original_filename' => 'person-a-doc.pdf',
+            'year' => 2025,
+        ]);
+
+        Document::factory()->create([
+            'person_id' => $personB->id,
+            'original_filename' => 'person-b-doc.pdf',
+            'year' => 2025,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('records.index', ['person' => $personA->id, 'year' => 2025]))
+            ->assertOk()
+            ->assertSee('person-a-doc.pdf')
+            ->assertDontSee('person-b-doc.pdf');
     });
 });

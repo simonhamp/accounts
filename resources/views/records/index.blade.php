@@ -28,7 +28,7 @@
                             </div>
                         </div>
 
-                        @if($records->isEmpty())
+                        @if($records->isEmpty() && $documents->isEmpty())
                             <div class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 p-8 text-center">
                                 <p class="text-zinc-500 dark:text-zinc-400">{{ __('records.no_records_for_year', ['year' => $selectedYear]) }}</p>
                             </div>
@@ -47,20 +47,30 @@
                                 $isLegalEntity = $selectedPerson->isLegalEntity();
 
                                 if ($isLegalEntity) {
-                                    $recordGroups = $records
-                                        ->groupBy(fn ($record) => $record['date']->format('Y-m'))
-                                        ->sortKeysDesc()
-                                        ->map(fn ($items, $key) => [
+                                    $documentsByMonth = $documents
+                                        ->filter(fn ($document) => $document['month_key'] !== null)
+                                        ->groupBy('month_key');
+                                    $yearWideDocuments = $documents
+                                        ->filter(fn ($document) => $document['month_key'] === null)
+                                        ->values();
+
+                                    $recordsByMonth = $records->groupBy(fn ($record) => $record['date']->format('Y-m'));
+                                    $monthKeys = $recordsByMonth->keys()->merge($documentsByMonth->keys())->unique()->sortDesc()->values();
+                                    $recordGroups = $monthKeys
+                                        ->mapWithKeys(fn ($key) => [$key => [
                                             'label' => \Illuminate\Support\Str::ucfirst(
                                                 \Carbon\Carbon::createFromFormat('Y-m', $key)->startOfMonth()->translatedFormat('F')
                                             ),
-                                            'records' => $items->values(),
-                                        ]);
+                                            'records' => ($recordsByMonth[$key] ?? collect())->values(),
+                                            'documents' => ($documentsByMonth[$key] ?? collect())->values(),
+                                        ]]);
                                     $defaultMonth = $recordGroups->keys()->first();
                                 } else {
+                                    $yearWideDocuments = $documents->values();
                                     $recordGroups = collect(['year' => [
                                         'label' => null,
                                         'records' => $records,
+                                        'documents' => collect(),
                                     ]]);
                                     $defaultMonth = 'year';
                                 }
@@ -130,6 +140,7 @@
                             @foreach($recordGroups as $monthKey => $group)
                                 @php
                                     $groupRecords = $group['records'];
+                                    $groupDocuments = $group['documents'] ?? collect();
                                     $groupEurIncome = $groupRecords->where('is_income', true)->sum('amount_eur');
                                     $groupEurOutgoing = $groupRecords->where('is_income', false)->sum('amount_eur');
                                     $groupEurNet = $groupEurIncome - $groupEurOutgoing;
@@ -141,6 +152,7 @@
                                         x-cloak
                                     @endif
                                 >
+                                @if($groupRecords->isNotEmpty())
                                 <div class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden mb-2">
                                     <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700">
                                         <thead class="bg-zinc-50 dark:bg-zinc-800">
@@ -230,12 +242,45 @@
                                         </tfoot>
                                     </table>
                                 </div>
+                                @endif
+
+                                @if($groupDocuments->isNotEmpty())
+                                    <div class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden mt-2">
+                                        <div class="px-6 py-3 bg-zinc-50 dark:bg-zinc-800 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+                                            {{ __('records.documents') }}
+                                        </div>
+                                        <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700">
+                                            <thead class="bg-zinc-50 dark:bg-zinc-800">
+                                                <tr>
+                                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">{{ __('records.filename') }}</th>
+                                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">{{ __('records.description') }}</th>
+                                                    <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">{{ __('records.download') }}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="bg-white dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-700">
+                                                @foreach($groupDocuments as $document)
+                                                    <tr>
+                                                        <td class="px-6 py-4 text-sm text-zinc-900 dark:text-zinc-100">{{ $document['filename'] }}</td>
+                                                        <td class="px-6 py-4 text-sm text-zinc-500 dark:text-zinc-400">{{ $document['description'] ?? '-' }}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right">
+                                                            <a href="{{ $document['download_url'] }}" class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300" target="_blank">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                                </svg>
+                                                            </a>
+                                                        </td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                @endif
                                 </div>
                             @endforeach
                             </div>
                         @endif
 
-                        @if($documents->isNotEmpty())
+                        @if($yearWideDocuments->isNotEmpty())
                             <div class="mt-8">
                                 <h2 class="text-lg font-semibold text-zinc-900 dark:text-white mb-4">{{ __('records.documents') }}</h2>
                                 <div class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
@@ -257,7 +302,7 @@
                                             </tr>
                                         </thead>
                                         <tbody class="bg-white dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-700">
-                                            @foreach($documents as $document)
+                                            @foreach($yearWideDocuments as $document)
                                                 <tr>
                                                     <td class="px-6 py-4 text-sm text-zinc-900 dark:text-zinc-100">
                                                         {{ $document['filename'] }}
