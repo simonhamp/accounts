@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Invoice extends Model
 {
@@ -481,6 +482,14 @@ class Invoice extends Model
     public function creditNotes(): HasMany
     {
         return $this->hasMany(Invoice::class, 'parent_invoice_id');
+    }
+
+    /**
+     * The quote this invoice was created from, if any.
+     */
+    public function quote(): HasOne
+    {
+        return $this->hasOne(Quote::class);
     }
 
     public function items(): HasMany

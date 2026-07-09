@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Invoices\Tables;
 
 use App\Enums\InvoiceStatus;
+use App\Filament\Resources\Quotes\QuoteResource;
 use App\Filament\Resources\StripeTransactions\StripeTransactionResource;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
@@ -125,6 +126,11 @@ class InvoicesTable
                         ->url(fn ($record) => StripeTransactionResource::getUrl('edit', [
                             'record' => $record->items()->whereNotNull('stripe_transaction_id')->first()?->stripe_transaction_id,
                         ])),
+                    Action::make('viewQuote')
+                        ->label('View Quote')
+                        ->icon('heroicon-o-clipboard-document-list')
+                        ->visible(fn ($record) => $record->quote !== null)
+                        ->url(fn ($record) => QuoteResource::getUrl('edit', ['record' => $record->quote])),
                     Action::make('finalize')
                         ->label('Finalize')
                         ->icon('heroicon-o-check-circle')
