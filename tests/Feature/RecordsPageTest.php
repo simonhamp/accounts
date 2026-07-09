@@ -15,6 +15,14 @@ beforeEach(function () {
     $this->actingAs(User::factory()->create());
 });
 
+it('renders the empty state when a year has no records and no documents', function () {
+    $person = Person::factory()->create();
+
+    $response = $this->get(route('records.index', ['person' => $person->id, 'year' => 2026]));
+
+    $response->assertOk();
+});
+
 it('groups records by calendar month for a Sociedad Limitada', function () {
     $person = Person::factory()->sociedadLimitada()->canarias()->create([
         'invoice_prefix' => 'SLM',

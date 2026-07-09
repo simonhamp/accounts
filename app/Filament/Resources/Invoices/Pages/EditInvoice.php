@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Invoices\Pages;
 
 use App\Enums\InvoiceStatus;
 use App\Filament\Resources\Invoices\InvoiceResource;
+use App\Filament\Resources\Quotes\QuoteResource;
 use App\Filament\Resources\StripeTransactions\StripeTransactionResource;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
@@ -225,6 +226,13 @@ class EditInvoice extends EditRecord
                 ->url(fn () => StripeTransactionResource::getUrl('edit', [
                     'record' => $this->record->items()->whereNotNull('stripe_transaction_id')->first()?->stripe_transaction_id,
                 ])),
+
+            Action::make('viewQuote')
+                ->label('View Quote')
+                ->icon('heroicon-o-clipboard-document-list')
+                ->color('gray')
+                ->visible(fn () => $this->record->quote !== null)
+                ->url(fn () => QuoteResource::getUrl('edit', ['record' => $this->record->quote])),
 
             DeleteAction::make(),
         ];

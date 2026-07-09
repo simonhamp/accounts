@@ -25,6 +25,7 @@ class Person extends Model
         'tax_regime',
         'invoice_prefix',
         'next_invoice_number',
+        'next_quote_number',
         'is_default',
     ];
 
@@ -32,6 +33,7 @@ class Person extends Model
     {
         return [
             'next_invoice_number' => 'integer',
+            'next_quote_number' => 'integer',
             'entity_type' => EntityType::class,
             'tax_regime' => TaxRegime::class,
             'is_default' => 'boolean',
@@ -66,6 +68,11 @@ class Person extends Model
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
+    }
+
+    public function quotes(): HasMany
+    {
+        return $this->hasMany(Quote::class);
     }
 
     public function otherIncomes(): HasMany
@@ -104,6 +111,32 @@ class Person extends Model
 
         $locked->increment('next_invoice_number');
         $this->next_invoice_number = $locked->next_invoice_number;
+
+        return $allocated;
+    }
+
+    public function getNextQuoteNumber(): string
+    {
+        $quoteNumber = str_pad((string) $this->next_quote_number, 5, '0', STR_PAD_LEFT);
+
+        return "{$this->invoice_prefix}-Q-{$quoteNumber}";
+    }
+
+    /**
+     * Atomically allocate the next quote number, locking the Person row to
+     * prevent concurrent saves from picking the same number. Quotes use their
+     * own counter and a "-Q-" series so they never collide with invoices.
+     *
+     * Must be called inside a database transaction.
+     */
+    public function allocateNextQuoteNumber(): string
+    {
+        $locked = static::query()->lockForUpdate()->findOrFail($this->id);
+        $number = str_pad((string) $locked->next_quote_number, 5, '0', STR_PAD_LEFT);
+        $allocated = "{$locked->invoice_prefix}-Q-{$number}";
+
+        $locked->increment('next_quote_number');
+        $this->next_quote_number = $locked->next_quote_number;
 
         return $allocated;
     }

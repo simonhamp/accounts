@@ -5,6 +5,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\OtherIncomeController;
+use App\Http\Controllers\QuoteController;
 use App\Http\Controllers\RecordsController;
 use App\Http\Controllers\RecordsDownloadController;
 use App\Livewire\Settings\Appearance;
@@ -60,6 +61,14 @@ Route::middleware(['auth'])->group(function () {
     Route::get('invoices/{invoice}/show-pdf/{language?}', [InvoiceController::class, 'showPdf'])
         ->where('language', 'es|en')
         ->name('invoices.show-pdf');
+
+    Route::get('quotes/{quote}/download-pdf/{language?}', [QuoteController::class, 'downloadPdf'])
+        ->where('language', 'es|en')
+        ->name('quotes.download-pdf');
+
+    Route::get('quotes/{quote}/show-pdf/{language?}', [QuoteController::class, 'showPdf'])
+        ->where('language', 'es|en')
+        ->name('quotes.show-pdf');
 
     Route::get('bills/{bill}/original-pdf', [BillController::class, 'showOriginalPdf'])
         ->name('bills.original-pdf');
