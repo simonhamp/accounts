@@ -365,6 +365,47 @@ it('accepts an invoice dated the same day as the previous-numbered one', functio
     expect($second->id)->not->toBeNull();
 });
 
+it('allows a status change on a historical invoice that is already out of order', function () {
+    $person = Person::factory()->create(['invoice_prefix' => 'NSG']);
+
+    $outOfOrder = Invoice::factory()->sent()->create([
+        'person_id' => $person->id,
+        'invoice_number' => 'NSG-00085',
+        'invoice_date' => '2026-03-20',
+    ]);
+
+    // Saved quietly so the ordering guard doesn't block the setup — this is the
+    // shape of data that arrives from a historical import.
+    Invoice::factory()->sent()->make([
+        'person_id' => $person->id,
+        'invoice_number' => 'NSG-00086',
+        'invoice_date' => '2026-01-04',
+    ])->saveQuietly();
+
+    $outOfOrder->markAsPaid();
+
+    expect($outOfOrder->fresh()->status)->toBe(InvoiceStatus::Paid);
+});
+
+it('still rejects an out-of-order date when the date itself is edited', function () {
+    $person = Person::factory()->create();
+
+    Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'invoice_date' => '2026-03-01',
+    ]);
+
+    $second = Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00002',
+        'invoice_date' => '2026-03-05',
+    ]);
+
+    expect(fn () => $second->update(['invoice_date' => '2026-02-15']))
+        ->toThrow(InvoiceOrderingException::class);
+});
+
 it('refuses to delete a finalized invoice', function () {
     $person = Person::factory()->create();
     $invoice = Invoice::factory()->create([
