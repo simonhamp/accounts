@@ -106,7 +106,8 @@ class Invoice extends Model
             // counter or any other invoices.
             $invoice->reallocateNumberIfPersonChanged();
 
-            // Enforce numerical/date ordering for newly-numbered invoices.
+            // Enforce numerical/date ordering when the number, date or Person
+            // changes.
             $invoice->assertDateOrdering();
 
             // Calculate EUR equivalent
@@ -198,6 +199,14 @@ class Invoice extends Model
     public function assertDateOrdering(): void
     {
         if (! $this->person_id || ! $this->invoice_number || ! $this->invoice_date) {
+            return;
+        }
+
+        // Only enforce ordering when a field that affects it is actually
+        // changing. Invoices imported or entered before this rule existed can
+        // sit out of order in the series, and a status or payment update
+        // shouldn't be blocked by history it isn't touching.
+        if ($this->exists && ! $this->isDirty(['person_id', 'invoice_number', 'invoice_date'])) {
             return;
         }
 
