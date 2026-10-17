@@ -14,12 +14,15 @@ class StripeTransaction extends Model
     protected $fillable = [
         'stripe_account_id',
         'stripe_transaction_id',
+        'stripe_invoice_id',
+        'stripe_charge_id',
         'type',
         'amount',
         'currency',
         'customer_name',
         'customer_email',
         'customer_address',
+        'customer_tax_ids',
         'description',
         'metadata',
         'status',
@@ -30,6 +33,7 @@ class StripeTransaction extends Model
     {
         return [
             'amount' => 'integer',
+            'customer_tax_ids' => 'array',
             'metadata' => 'array',
             'transaction_date' => 'datetime',
         ];
@@ -38,6 +42,28 @@ class StripeTransaction extends Model
     public function stripeAccount(): BelongsTo
     {
         return $this->belongsTo(StripeAccount::class);
+    }
+
+    /**
+     * The charge a refund or dispute belongs to, when it has been imported.
+     */
+    public function originalCharge(): BelongsTo
+    {
+        return $this->belongsTo(StripeTransaction::class, 'stripe_charge_id', 'stripe_transaction_id');
+    }
+
+    /**
+     * The customer's tax IDs as they go on an invoice: the values, comma
+     * separated.
+     */
+    public function formattedCustomerTaxId(): ?string
+    {
+        $values = collect($this->customer_tax_ids ?? [])
+            ->pluck('value')
+            ->filter()
+            ->unique();
+
+        return $values->isEmpty() ? null : $values->implode(', ');
     }
 
     public function invoiceItem(): HasOne

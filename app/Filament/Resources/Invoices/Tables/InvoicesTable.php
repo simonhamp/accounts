@@ -71,6 +71,9 @@ class InvoicesTable
                 TextColumn::make('customer_tax_id')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('customer_email')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('total_amount')
                     ->money(fn ($record) => $record->currency, divideBy: 100)
                     ->sortable(),

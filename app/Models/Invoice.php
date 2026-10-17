@@ -38,6 +38,7 @@ class Invoice extends Model
         'customer_name',
         'customer_address',
         'customer_tax_id',
+        'customer_email',
         'total_amount',
         'tax_base_total',
         'tax_total',

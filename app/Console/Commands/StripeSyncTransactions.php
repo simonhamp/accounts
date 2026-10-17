@@ -56,6 +56,10 @@ class StripeSyncTransactions extends Command
                 $this->info("  ✓ Imported {$imported['payments']} payments");
                 $this->info("  ✓ Imported {$imported['refunds']} refunds");
                 $this->info("  ✓ Imported {$imported['disputes']} disputes");
+
+                foreach ($imported['warnings'] as $warning) {
+                    $this->warn("  ! {$warning}");
+                }
             } catch (\Exception $e) {
                 $this->error("  ✗ Failed: {$e->getMessage()}");
 

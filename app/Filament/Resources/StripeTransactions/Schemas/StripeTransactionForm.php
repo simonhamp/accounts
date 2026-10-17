@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\StripeTransactions\Schemas;
 
 use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -35,6 +36,14 @@ class StripeTransactionForm
                             ->disabled(),
                         TextInput::make('status')
                             ->disabled(),
+                        TextInput::make('stripe_invoice_id')
+                            ->label('Stripe invoice')
+                            ->disabled()
+                            ->visible(fn ($record) => filled($record?->stripe_invoice_id)),
+                        TextInput::make('stripe_charge_id')
+                            ->label('Original charge')
+                            ->disabled()
+                            ->visible(fn ($record) => filled($record?->stripe_charge_id)),
                     ])
                     ->columns(2),
 
@@ -51,6 +60,14 @@ class StripeTransactionForm
                         Textarea::make('customer_address')
                             ->columnSpanFull()
                             ->disabled(fn ($record) => $record?->isInvoiced()),
+                        Placeholder::make('customer_tax_ids_display')
+                            ->label('Customer tax IDs')
+                            ->content(fn ($record) => collect($record?->customer_tax_ids ?? [])
+                                ->map(fn (array $taxId) => trim(($taxId['value'] ?? '').' ('.($taxId['type'] ?? '?').')'))
+                                ->implode(', '))
+                            ->helperText('From the Stripe invoice. Goes onto the invoice as the customer tax ID.')
+                            ->visible(fn ($record) => filled($record?->customer_tax_ids))
+                            ->columnSpanFull(),
                         Textarea::make('description')
                             ->columnSpanFull()
                             ->disabled(fn ($record) => $record?->isInvoiced()),

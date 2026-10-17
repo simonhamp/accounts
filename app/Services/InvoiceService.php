@@ -110,13 +110,15 @@ class InvoiceService
 
             $invoice = Invoice::create([
                 'person_id' => $person->id,
+                'parent_invoice_id' => $firstTransaction->originalCharge?->invoiceItem?->invoice_id,
                 'invoice_number' => $person->allocateNextInvoiceNumber(),
                 'invoice_date' => $firstTransaction->transaction_date,
                 'period_month' => $month,
                 'period_year' => $year,
                 'customer_name' => $customerName,
                 'customer_address' => $firstTransaction->customer_address,
-                'customer_tax_id' => null,
+                'customer_tax_id' => $firstTransaction->formattedCustomerTaxId(),
+                'customer_email' => $firstTransaction->customer_email,
                 'total_amount' => 0,
                 'currency' => $currency,
                 'is_simplified' => $isSimplified,

@@ -172,6 +172,9 @@ class InvoiceForm
                                         if (empty($get('customer_tax_id')) && $customer->tax_id) {
                                             $set('customer_tax_id', $customer->tax_id);
                                         }
+                                        if (empty($get('customer_email')) && $customer->email) {
+                                            $set('customer_email', $customer->email);
+                                        }
                                     }
                                 }
                             })
@@ -249,6 +252,11 @@ class InvoiceForm
                             ->helperText('Leave empty to use customer record address'),
 
                         TextInput::make('customer_tax_id'),
+
+                        TextInput::make('customer_email')
+                            ->email()
+                            ->maxLength(255)
+                            ->helperText('Where the invoice is emailed'),
                     ])
                     ->columns(2),
 
