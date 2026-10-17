@@ -7,16 +7,29 @@ use App\Models\StripeTransaction;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\RateLimiter;
 use Stripe\StripeClient;
+use Stripe\StripeObject;
 
 class StripeImportService
 {
+    /**
+     * Fields a re-sync may fill in on an existing transaction when they are
+     * still empty. Anything already set is left as it is.
+     *
+     * @var array<int, string>
+     */
+    protected const FILL_WHEN_BLANK = [
+        'customer_name',
+        'customer_email',
+        'customer_address',
+    ];
+
     public function __construct(
         protected int $rateLimitPerMinute = 90
     ) {}
 
     public function syncAccount(StripeAccount $account, ?int $year = null, ?int $month = null): array
     {
-        $stripe = new StripeClient($account->api_key);
+        $stripe = app(StripeClient::class, ['config' => $account->api_key]);
         $imported = [
             'payments' => 0,
             'refunds' => 0,
@@ -97,22 +110,67 @@ class StripeImportService
 
     protected function importCharge(StripeAccount $account, $charge): void
     {
-        StripeTransaction::updateOrCreate(
-            ['stripe_transaction_id' => $charge->id],
-            [
-                'stripe_account_id' => $account->id,
-                'type' => 'payment',
-                'amount' => $charge->amount,
-                'currency' => strtoupper($charge->currency),
-                'customer_name' => $charge->billing_details?->name,
-                'customer_email' => $charge->billing_details?->email ?? $charge->receipt_email,
-                'customer_address' => $this->formatAddress($charge->billing_details?->address),
-                'description' => $charge->description ?? 'Payment',
-                'metadata' => (array) $charge->metadata,
+        $this->importTransaction($charge->id, [
+            'stripe_account_id' => $account->id,
+            'type' => 'payment',
+            'amount' => $charge->amount,
+            'currency' => strtoupper($charge->currency),
+            'customer_name' => $charge->billing_details?->name,
+            'customer_email' => $charge->billing_details?->email ?? $charge->receipt_email,
+            'customer_address' => $this->formatAddress($charge->billing_details?->address),
+            'description' => $charge->description ?? 'Payment',
+            'metadata' => $this->metadata($charge->metadata),
+            'transaction_date' => Carbon::createFromTimestamp($charge->created),
+        ]);
+    }
+
+    /**
+     * Create a transaction the first time Stripe reports it. A transaction that
+     * already exists keeps its status, so a re-sync never un-ignores it or puts
+     * it back in line for invoicing, and keeps anything edited by hand.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function importTransaction(string $stripeTransactionId, array $attributes): void
+    {
+        $transaction = StripeTransaction::query()
+            ->where('stripe_transaction_id', $stripeTransactionId)
+            ->first();
+
+        if ($transaction === null) {
+            StripeTransaction::create([
+                ...$attributes,
+                'stripe_transaction_id' => $stripeTransactionId,
                 'status' => 'pending_review',
-                'transaction_date' => Carbon::createFromTimestamp($charge->created),
-            ]
-        )->updateCompleteStatus();
+            ])->updateCompleteStatus();
+
+            return;
+        }
+
+        $this->refreshExistingTransaction($transaction, $attributes);
+    }
+
+    /**
+     * Stripe's metadata is refreshed on every row. Customer details only fill
+     * gaps, and only while the transaction hasn't been invoiced or converted,
+     * so nothing Simon typed in and nothing already on an invoice changes.
+     * Amount, currency, type, date, description and status are left alone.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function refreshExistingTransaction(StripeTransaction $transaction, array $attributes): void
+    {
+        $updates = ['metadata' => $attributes['metadata']];
+
+        if (! $transaction->isProcessed()) {
+            foreach (self::FILL_WHEN_BLANK as $field) {
+                if (blank($transaction->{$field}) && filled($attributes[$field] ?? null)) {
+                    $updates[$field] = $attributes[$field];
+                }
+            }
+        }
+
+        $transaction->update($updates);
     }
 
     protected function importRefunds(StripeClient $stripe, StripeAccount $account, array &$imported, array $dateFilter = []): void
@@ -154,19 +212,15 @@ class StripeImportService
 
     protected function importRefund(StripeAccount $account, $refund): void
     {
-        StripeTransaction::updateOrCreate(
-            ['stripe_transaction_id' => $refund->id],
-            [
-                'stripe_account_id' => $account->id,
-                'type' => 'refund',
-                'amount' => -$refund->amount,
-                'currency' => strtoupper($refund->currency),
-                'description' => $refund->reason ? "Refund: {$refund->reason}" : 'Refund',
-                'metadata' => (array) $refund->metadata,
-                'status' => 'pending_review',
-                'transaction_date' => Carbon::createFromTimestamp($refund->created),
-            ]
-        )->updateCompleteStatus();
+        $this->importTransaction($refund->id, [
+            'stripe_account_id' => $account->id,
+            'type' => 'refund',
+            'amount' => -$refund->amount,
+            'currency' => strtoupper($refund->currency),
+            'description' => $refund->reason ? "Refund: {$refund->reason}" : 'Refund',
+            'metadata' => $this->metadata($refund->metadata),
+            'transaction_date' => Carbon::createFromTimestamp($refund->created),
+        ]);
     }
 
     protected function importDisputes(StripeClient $stripe, StripeAccount $account, array &$imported, array $dateFilter = []): void
@@ -204,22 +258,31 @@ class StripeImportService
 
     protected function importDispute(StripeAccount $account, $dispute): void
     {
-        StripeTransaction::updateOrCreate(
-            ['stripe_transaction_id' => $dispute->id],
-            [
-                'stripe_account_id' => $account->id,
-                'type' => 'chargeback',
-                'amount' => -$dispute->amount,
-                'currency' => strtoupper($dispute->currency),
-                'description' => "Dispute/Chargeback: {$dispute->reason}",
-                'metadata' => [
-                    'status' => $dispute->status,
-                    'reason' => $dispute->reason,
-                ],
-                'status' => 'pending_review',
-                'transaction_date' => Carbon::createFromTimestamp($dispute->created),
-            ]
-        )->updateCompleteStatus();
+        $this->importTransaction($dispute->id, [
+            'stripe_account_id' => $account->id,
+            'type' => 'chargeback',
+            'amount' => -$dispute->amount,
+            'currency' => strtoupper($dispute->currency),
+            'description' => "Dispute/Chargeback: {$dispute->reason}",
+            'metadata' => [
+                'status' => $dispute->status,
+                'reason' => $dispute->reason,
+            ],
+            'transaction_date' => Carbon::createFromTimestamp($dispute->created),
+        ]);
+    }
+
+    /**
+     * Casting a StripeObject with (array) dumps its internals, request options
+     * and API key included, so read the values through toArray(). Empty
+     * metadata comes back from the SDK as a plain array.
+     *
+     * @param  StripeObject|array<string, mixed>|null  $metadata
+     * @return array<string, mixed>
+     */
+    protected function metadata(StripeObject|array|null $metadata): array
+    {
+        return $metadata instanceof StripeObject ? $metadata->toArray() : ($metadata ?? []);
     }
 
     protected function formatAddress($address): ?string
