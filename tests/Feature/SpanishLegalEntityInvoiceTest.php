@@ -579,3 +579,24 @@ it('classifies a Stripe transaction over €400 as a full invoice', function () 
     $invoice = Invoice::where('person_id', $person->id)->first();
     expect($invoice->is_simplified)->toBeFalse();
 });
+
+it('does not repeat the legal suffix when the name already has it', function (string $view) {
+    $sinoperro = Person::where('cif', 'B26722488')->sole();
+
+    $invoice = Invoice::factory()->create([
+        'person_id' => $sinoperro->id,
+        'invoice_number' => 'SP-00001',
+    ]);
+    $invoice->load(['person', 'items', 'bankAccount']);
+
+    $html = view($view, ['invoice' => $invoice])->render();
+
+    expect($sinoperro->legalName())->toBe('SINOPERRO, S.L.')
+        ->and($html)->toContain('SINOPERRO, S.L.')
+        ->and($html)->not->toContain('S.L., S.L.');
+})->with(['invoices.pdf-es', 'invoices.pdf-en']);
+
+it('adds the legal suffix to a company name without one', function () {
+    expect(Person::factory()->sociedadLimitada()->make(['name' => 'Acme'])->legalName())->toBe('Acme, S.L.')
+        ->and(Person::factory()->make(['name' => 'Simon Hamp'])->legalName())->toBe('Simon Hamp');
+});
