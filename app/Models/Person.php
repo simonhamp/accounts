@@ -7,6 +7,7 @@ use App\Enums\TaxRegime;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class Person extends Model
 {
@@ -46,6 +47,21 @@ class Person extends Model
     public function isLegalEntity(): bool
     {
         return $this->entity_type?->isLegalEntity() ?? false;
+    }
+
+    /**
+     * The name invoices are issued under, e.g. "SINOPERRO, S.L.". The legal
+     * suffix is added unless the name already ends with it.
+     */
+    public function legalName(): string
+    {
+        $suffix = $this->entity_type?->legalSuffix();
+
+        if ($suffix === null || Str::endsWith(Str::lower($this->name), Str::lower($suffix))) {
+            return $this->name;
+        }
+
+        return "{$this->name}, {$suffix}";
     }
 
     public function taxIdentifier(): ?string

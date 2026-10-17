@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SendInvoiceEmail;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Person;
@@ -151,12 +152,31 @@ class InvoiceService
     }
 
     /**
+     * Make sure both PDFs exist and match the invoice, generating them when a
+     * file is missing or the invoice has changed since they were made.
+     */
+    public function ensurePdfIsCurrent(Invoice $invoice): void
+    {
+        $missing = collect([$invoice->pdf_path, $invoice->pdf_path_en])
+            ->contains(fn (?string $path) => blank($path) || ! Storage::exists($path));
+
+        if ($missing || $invoice->hasBeenModifiedSinceGeneration()) {
+            $this->generateAndStorePdf($invoice);
+        }
+    }
+
+    /**
      * Generate one invoice per ready, unprocessed Stripe transaction in
      * chronological order so invoice numbers and dates stay consistent.
      *
-     * @return array{generated: int, failed: int, errors: array<int, array{transaction_id: int, error: string}>}
+     * With $emailCustomers, each invoice made here for a payment from the
+     * scheduled sync window, on an account that emails invoices, is queued to
+     * go to the customer. Older invoices are never emailed from here, and nor
+     * are invoices for older payments, e.g. ones a backfill brought in.
+     *
+     * @return array{generated: int, failed: int, emailed: int, missing_email: int, errors: array<int, array{transaction_id: int, error: string}>}
      */
-    public function generateInvoicesForReadyTransactions(?StripeAccount $account = null): array
+    public function generateInvoicesForReadyTransactions(?StripeAccount $account = null, bool $emailCustomers = false): array
     {
         $query = StripeTransaction::query()
             ->where('status', 'ready')
@@ -171,11 +191,15 @@ class InvoiceService
 
         $generated = 0;
         $failed = 0;
+        $emailed = 0;
+        $missingEmail = 0;
         $errors = [];
+
+        $emailPaymentsFrom = now()->subDays(StripeImportService::SCHEDULED_SYNC_DAYS)->startOfDay();
 
         foreach ($transactions as $transaction) {
             try {
-                $this->generateInvoiceForTransaction($transaction);
+                $invoice = $this->generateInvoiceForTransaction($transaction);
                 $generated++;
             } catch (\Throwable $e) {
                 $failed++;
@@ -184,10 +208,33 @@ class InvoiceService
                     'transaction_id' => $transaction->id,
                     'error' => $e->getMessage(),
                 ]);
+
+                continue;
             }
+
+            if (! $emailCustomers
+                || ! $transaction->stripeAccount->email_invoices
+                || $transaction->transaction_date->lt($emailPaymentsFrom)) {
+                continue;
+            }
+
+            if (blank($invoice->customer_email)) {
+                $missingEmail++;
+
+                continue;
+            }
+
+            SendInvoiceEmail::dispatch($invoice);
+            $emailed++;
         }
 
-        return ['generated' => $generated, 'failed' => $failed, 'errors' => $errors];
+        return [
+            'generated' => $generated,
+            'failed' => $failed,
+            'emailed' => $emailed,
+            'missing_email' => $missingEmail,
+            'errors' => $errors,
+        ];
     }
 
     public function finalizeImportedInvoice(Invoice $invoice): Invoice

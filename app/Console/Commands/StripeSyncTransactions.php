@@ -15,6 +15,8 @@ class StripeSyncTransactions extends Command
                             {--month= : Sync transactions for specific month (1-12)}
                             {--skip-auto-invoice : Skip auto-generating invoices for ready transactions}';
 
+    protected $help = 'Invoices are only emailed to customers on a scheduled sync (no --year or --month), for accounts that have invoice emails turned on.';
+
     protected $description = 'Sync Stripe transactions from all configured accounts';
 
     public function handle(StripeImportService $importService, InvoiceService $invoiceService): int
@@ -75,9 +77,16 @@ class StripeSyncTransactions extends Command
             $this->info('Auto-generating invoices for ready transactions...');
 
             $accountFilter = $accounts->count() === 1 ? $accounts->first() : null;
-            $result = $invoiceService->generateInvoicesForReadyTransactions($accountFilter);
+            $isBackfill = $year !== null;
+            $result = $invoiceService->generateInvoicesForReadyTransactions($accountFilter, emailCustomers: ! $isBackfill);
 
             $this->info("  ✓ Generated {$result['generated']} invoice(s)");
+            if ($result['emailed'] > 0) {
+                $this->info("  ✓ Queued {$result['emailed']} invoice email(s) to customers");
+            }
+            if ($result['missing_email'] > 0) {
+                $this->warn("  ! {$result['missing_email']} invoice(s) have no customer email and were left Ready to Send");
+            }
             if ($result['failed'] > 0) {
                 $this->warn("  ✗ Failed to generate {$result['failed']} invoice(s); see logs for details");
                 foreach ($result['errors'] as $error) {

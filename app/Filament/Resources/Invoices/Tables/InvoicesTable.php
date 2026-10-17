@@ -3,7 +3,9 @@
 namespace App\Filament\Resources\Invoices\Tables;
 
 use App\Enums\InvoiceStatus;
+use App\Filament\Resources\Invoices\Actions\EmailInvoiceAction;
 use App\Filament\Resources\StripeTransactions\StripeTransactionResource;
+use App\Jobs\SendInvoiceEmail;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -42,6 +44,12 @@ class InvoicesTable
                     ->icon(fn ($state) => $state ? 'heroicon-o-exclamation-triangle' : null)
                     ->color('warning')
                     ->tooltip('Invoice over €400 - Customer Tax ID required'),
+                IconColumn::make('needs_customer_email')
+                    ->label('')
+                    ->state(fn ($record) => $record->needsCustomerEmail())
+                    ->icon(fn ($state) => $state ? 'heroicon-o-envelope' : null)
+                    ->color('warning')
+                    ->tooltip('No customer email - this invoice was not emailed'),
                 TextColumn::make('person.name')
                     ->placeholder('Unassigned')
                     ->searchable(),
@@ -85,6 +93,13 @@ class InvoicesTable
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('generated_at')
                     ->dateTime()
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('sent_at')
+                    ->label('Emailed')
+                    ->dateTime()
+                    ->description(fn ($record) => $record->sent_to)
+                    ->placeholder('Not emailed')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('created_at')
@@ -154,6 +169,7 @@ class InvoicesTable
                                     ->send();
                             }
                         }),
+                    EmailInvoiceAction::make(),
                     Action::make('markSent')
                         ->label('Mark as Sent')
                         ->icon('heroicon-o-paper-airplane')
@@ -239,6 +255,49 @@ class InvoicesTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    BulkAction::make('emailInvoices')
+                        ->label('Email to Customers')
+                        ->icon('heroicon-o-envelope')
+                        ->color('primary')
+                        ->requiresConfirmation()
+                        ->modalHeading('Email Invoices to Customers')
+                        ->modalDescription(function (Collection $records) {
+                            $sendable = $records->filter(fn ($record) => $record->canBeEmailed());
+
+                            if ($sendable->isEmpty()) {
+                                return 'None of the selected invoices can be emailed. They need to be finalized and have a customer email.';
+                            }
+
+                            $message = "{$sendable->count()} invoice(s) will be emailed to their customers.";
+
+                            $alreadySent = $sendable->filter(fn ($record) => $record->sent_at !== null)->count();
+                            if ($alreadySent > 0) {
+                                $message .= " {$alreadySent} of them have been emailed before and will be sent again.";
+                            }
+
+                            $skipped = $records->count() - $sendable->count();
+                            if ($skipped > 0) {
+                                $message .= " {$skipped} invoice(s) will be skipped as they are not finalized or have no customer email.";
+                            }
+
+                            return $message;
+                        })
+                        ->action(function (Collection $records) {
+                            $sendable = $records->filter(fn ($record) => $record->canBeEmailed());
+
+                            foreach ($sendable as $record) {
+                                SendInvoiceEmail::dispatch($record);
+                            }
+
+                            if ($sendable->isNotEmpty()) {
+                                Notification::make()
+                                    ->success()
+                                    ->title('Invoice emails queued')
+                                    ->body("{$sendable->count()} invoice(s) are on their way.")
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
                     BulkAction::make('markSent')
                         ->label('Mark as Sent')
                         ->icon('heroicon-o-paper-airplane')
@@ -395,6 +454,7 @@ class InvoicesTable
                     DeleteBulkAction::make(),
                 ]),
             ])
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('stripeTransactions.stripeAccount'))
             ->defaultSort('created_at', 'desc');
     }
 }

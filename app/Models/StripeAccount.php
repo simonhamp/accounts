@@ -15,6 +15,12 @@ class StripeAccount extends Model
         'person_id',
         'account_name',
         'api_key',
+        'email_invoices',
+        'invoice_sender_name',
+        'invoice_from_address',
+        'invoice_reply_to',
+        'invoice_bcc',
+        'invoice_language',
         'last_synced_at',
     ];
 
@@ -22,6 +28,7 @@ class StripeAccount extends Model
     {
         return [
             'api_key' => 'encrypted',
+            'email_invoices' => 'boolean',
             'last_synced_at' => 'datetime',
         ];
     }
