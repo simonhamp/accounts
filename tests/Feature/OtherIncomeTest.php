@@ -100,7 +100,7 @@ describe('OtherIncome Model', function () {
 
 describe('OtherIncome Filament Resource', function () {
     beforeEach(function () {
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->admin()->create();
         $this->actingAs($this->user);
     });
 
@@ -127,7 +127,7 @@ describe('OtherIncome Filament Resource', function () {
 
 describe('IncomeSource Filament Resource', function () {
     beforeEach(function () {
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->admin()->create();
         $this->actingAs($this->user);
     });
 
@@ -164,7 +164,7 @@ describe('Person OtherIncomes Relationship', function () {
 
 describe('Import Page', function () {
     beforeEach(function () {
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->admin()->create();
         $this->actingAs($this->user);
     });
 
@@ -177,7 +177,7 @@ describe('Import Page', function () {
 
 describe('OtherIncome PDF Preview', function () {
     beforeEach(function () {
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->admin()->create();
         $this->actingAs($this->user);
     });
 
@@ -316,7 +316,7 @@ describe('BankAccount Model', function () {
 
 describe('BankAccount Filament Resource', function () {
     beforeEach(function () {
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->admin()->create();
         $this->actingAs($this->user);
     });
 

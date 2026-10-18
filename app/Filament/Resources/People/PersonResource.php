@@ -8,6 +8,7 @@ use App\Filament\Resources\People\Pages\ListPeople;
 use App\Filament\Resources\People\RelationManagers\BillsRelationManager;
 use App\Filament\Resources\People\RelationManagers\InvoicesRelationManager;
 use App\Filament\Resources\People\RelationManagers\OtherIncomesRelationManager;
+use App\Filament\Resources\People\RelationManagers\QuotesRelationManager;
 use App\Filament\Resources\People\Schemas\PersonForm;
 use App\Filament\Resources\People\Tables\PeopleTable;
 use App\Models\Person;
@@ -42,6 +43,7 @@ class PersonResource extends Resource
     {
         return [
             InvoicesRelationManager::class,
+            QuotesRelationManager::class,
             BillsRelationManager::class,
             OtherIncomesRelationManager::class,
         ];

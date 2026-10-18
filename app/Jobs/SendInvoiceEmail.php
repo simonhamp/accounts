@@ -5,16 +5,18 @@ namespace App\Jobs;
 use App\Mail\InvoiceMail;
 use App\Models\Invoice;
 use App\Services\InvoiceService;
-use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Mail;
 
 /**
  * Email a finalized invoice to its customer from the queue. The PDF is made
  * first if it is missing or out of date, and the invoice is only marked as
- * sent once the mailer has accepted the message.
+ * sent once the mailer has accepted the message. Dispatching waits for any
+ * open database transaction to commit, so an invoice that gets rolled back
+ * is never emailed.
  */
-class SendInvoiceEmail implements ShouldQueue
+class SendInvoiceEmail implements ShouldQueueAfterCommit
 {
     use Queueable;
 

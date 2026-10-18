@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Invoice extends Model
 {
@@ -103,7 +104,14 @@ class Invoice extends Model
                 $invoice->total_amount = $invoice->tax_base_total + $invoice->tax_total - $invoice->irpf_amount;
             }
 
-            // Enforce numerical/date ordering for newly-numbered invoices.
+            // Reallocate invoice number when an existing invoice is moved to a
+            // different Person whose prefix differs. The old number is
+            // abandoned (gap accepted) — we don't touch the previous Person's
+            // counter or any other invoices.
+            $invoice->reallocateNumberIfPersonChanged();
+
+            // Enforce numerical/date ordering when the number, date or Person
+            // changes.
             $invoice->assertDateOrdering();
 
             // Calculate EUR equivalent
@@ -124,11 +132,14 @@ class Invoice extends Model
 
             // When the most recent invoice in a series is deleted, roll back
             // the Person's counter so the next allocation reuses the number.
+            // Skip when the invoice's prefix doesn't match the Person's
+            // current prefix — that means the invoice was moved here from a
+            // different series, so its number isn't tied to this counter.
             if ($invoice->person_id && $invoice->invoice_number) {
                 $person = $invoice->person;
                 $prefix = $invoice->invoicePrefix();
 
-                if ($person && $prefix) {
+                if ($person && $prefix && $prefix === $person->invoice_prefix) {
                     $highest = static::query()
                         ->where('person_id', $invoice->person_id)
                         ->where('invoice_number', 'like', $prefix.'-%')
@@ -158,11 +169,48 @@ class Invoice extends Model
     }
 
     /**
+     * Allocate a fresh invoice_number from the new Person's series when an
+     * existing invoice is reassigned to a Person with a different prefix.
+     * Does nothing for new (unsaved) invoices, invoices that don't yet have
+     * a number, or moves between Persons that share a prefix.
+     */
+    public function reallocateNumberIfPersonChanged(): void
+    {
+        if (! $this->exists || ! $this->isDirty('person_id')) {
+            return;
+        }
+
+        if (! $this->invoice_number || ! $this->person_id) {
+            return;
+        }
+
+        $newPerson = Person::find($this->person_id);
+
+        if (! $newPerson || ! $newPerson->invoice_prefix) {
+            return;
+        }
+
+        if ($this->invoicePrefix() === $newPerson->invoice_prefix) {
+            return;
+        }
+
+        $this->invoice_number = $newPerson->allocateNextInvoiceNumber();
+    }
+
+    /**
      * @throws InvoiceOrderingException
      */
     public function assertDateOrdering(): void
     {
         if (! $this->person_id || ! $this->invoice_number || ! $this->invoice_date) {
+            return;
+        }
+
+        // Only enforce ordering when a field that affects it is actually
+        // changing. Invoices imported or entered before this rule existed can
+        // sit out of order in the series, and a status or payment update
+        // shouldn't be blocked by history it isn't touching.
+        if ($this->exists && ! $this->isDirty(['person_id', 'invoice_number', 'invoice_date'])) {
             return;
         }
 
@@ -336,6 +384,7 @@ class Invoice extends Model
             : [];
 
         $state = [
+            'person_id' => $this->person_id,
             'customer_id' => $this->customer_id,
             'customer_name' => $this->customer_name,
             'customer_address' => $this->customer_address,
@@ -345,6 +394,7 @@ class Invoice extends Model
             'bank_account_id' => $this->bank_account_id,
             'currency' => $this->currency,
             'irpf_rate' => $this->irpf_rate,
+            'is_simplified' => (bool) $this->is_simplified,
             'legal_notes' => $this->legal_notes,
             'items' => $items,
         ];
@@ -445,6 +495,14 @@ class Invoice extends Model
     public function creditNotes(): HasMany
     {
         return $this->hasMany(Invoice::class, 'parent_invoice_id');
+    }
+
+    /**
+     * The quote this invoice was created from, if any.
+     */
+    public function quote(): HasOne
+    {
+        return $this->hasOne(Quote::class);
     }
 
     public function items(): HasMany

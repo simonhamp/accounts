@@ -12,6 +12,7 @@ return [
     'outgoing' => 'Outgoing',
     'net' => 'Net',
     'download_all' => 'Download All',
+    'download_month' => 'Download Month',
 
     // Table headers
     'date' => 'Date',
@@ -20,6 +21,7 @@ return [
     'amount' => 'Amount',
     'amount_eur' => 'EUR Amount',
     'total_eur' => 'Total (EUR)',
+    'month_subtotal' => 'Month Subtotal (EUR)',
     'download' => 'Download',
 
     // Record types
@@ -34,6 +36,8 @@ return [
 
     // Navigation
     'people' => 'People',
+    'businesses' => 'Businesses',
+    'individuals' => 'Individuals',
     'language' => 'Language',
     'english' => 'English',
     'spanish' => 'Spanish',

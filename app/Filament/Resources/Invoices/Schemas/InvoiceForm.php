@@ -6,6 +6,7 @@ use App\Enums\CustomerTaxRegion;
 use App\Enums\InvoiceItemUnit;
 use App\Enums\InvoiceStatus;
 use App\Enums\TaxType;
+use App\Filament\Resources\Customers\CustomerResource;
 use App\Models\BankAccount;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -93,6 +94,11 @@ class InvoiceForm
                         Placeholder::make('status_display')
                             ->label('Current Status')
                             ->content(fn ($record) => $record?->status?->label() ?? 'New'),
+
+                        Placeholder::make('quote_display')
+                            ->label('Created from Quote')
+                            ->content(fn ($record) => $record?->quote?->quote_number)
+                            ->visible(fn ($record) => $record?->quote !== null),
 
                         Placeholder::make('error_display')
                             ->label('Error')
@@ -221,28 +227,8 @@ class InvoiceForm
                                 Action::make('viewCustomer')
                                     ->label('View Customer')
                                     ->icon('heroicon-o-eye')
-                                    ->modalHeading(fn ($get) => Customer::find($get('customer_id'))?->name ?? 'Customer Details')
-                                    ->modalContent(function ($get) {
-                                        $customer = Customer::find($get('customer_id'));
-                                        if (! $customer) {
-                                            return new HtmlString('<p class="text-gray-500">No customer selected</p>');
-                                        }
-
-                                        return new HtmlString(
-                                            '<div class="space-y-4">'.
-                                            '<div><strong class="text-gray-500 dark:text-gray-400">Name:</strong><br>'
-                                                .e($customer->name).'</div>'.
-                                            '<div><strong class="text-gray-500 dark:text-gray-400">Email:</strong><br>'
-                                                .($customer->email ? e($customer->email) : '<span class="text-gray-400">Not set</span>').'</div>'.
-                                            '<div><strong class="text-gray-500 dark:text-gray-400">Address:</strong><br>'
-                                                .($customer->address ? nl2br(e($customer->address)) : '<span class="text-gray-400">Not set</span>').'</div>'.
-                                            '<div><strong class="text-gray-500 dark:text-gray-400">Total Invoices:</strong><br>'
-                                                .$customer->invoices()->count().'</div>'.
-                                            '</div>'
-                                        );
-                                    })
-                                    ->modalSubmitAction(false)
-                                    ->modalCancelActionLabel('Close')
+                                    ->url(fn ($get) => CustomerResource::getUrl('edit', ['record' => $get('customer_id')]))
+                                    ->openUrlInNewTab()
                                     ->visible(fn ($get) => ! empty($get('customer_id')))
                             )
                             ->helperText('Select a customer to pre-fill details below'),

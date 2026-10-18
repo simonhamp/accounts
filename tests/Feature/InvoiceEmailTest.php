@@ -359,7 +359,7 @@ describe('the email', function () {
 
 describe('sending by hand', function () {
     beforeEach(function () {
-        $this->actingAs(User::factory()->create(['is_admin' => true]));
+        $this->actingAs(User::factory()->admin()->create());
     });
 
     it('sends from the edit page after confirming the recipient', function () {

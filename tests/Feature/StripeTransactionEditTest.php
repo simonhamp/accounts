@@ -72,14 +72,29 @@ describe('Generate Invoice Action', function () {
             ->assertActionVisible('view_other_income');
     });
 
-    it('hides generate invoice button when transaction is pending review', function () {
+    it('shows generate invoice button when transaction is pending review', function () {
         $transaction = StripeTransaction::factory()->create([
             'status' => 'pending_review',
         ]);
 
         Livewire::test(EditStripeTransaction::class, ['record' => $transaction->id])
             ->assertSuccessful()
-            ->assertActionHidden('generate_invoice');
+            ->assertActionVisible('generate_invoice');
+    });
+
+    it('generates invoice from a pending review transaction', function () {
+        $transaction = StripeTransaction::factory()->create([
+            'status' => 'pending_review',
+        ]);
+
+        expect(Invoice::count())->toBe(0);
+
+        Livewire::test(EditStripeTransaction::class, ['record' => $transaction->id])
+            ->callAction('generate_invoice')
+            ->assertHasNoActionErrors();
+
+        expect(Invoice::count())->toBe(1);
+        expect($transaction->fresh()->isInvoiced())->toBeTrue();
     });
 
     it('hides generate invoice button when transaction is ignored', function () {

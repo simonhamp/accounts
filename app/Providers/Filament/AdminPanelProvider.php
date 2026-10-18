@@ -38,7 +38,12 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 NavigationGroup::make('Income'),
                 NavigationGroup::make('Bills'),
-                NavigationGroup::make('Settings'),
+                NavigationGroup::make('Documents')
+                    ->collapsed(),
+                NavigationGroup::make('Reports')
+                    ->collapsed(),
+                NavigationGroup::make('Settings')
+                    ->collapsed(),
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([])

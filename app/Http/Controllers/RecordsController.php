@@ -17,7 +17,9 @@ class RecordsController extends Controller
 {
     public function index(?int $personId = null, ?int $year = null): View
     {
-        $people = Person::orderBy('name')->get();
+        $people = Person::orderBy('name')->get()
+            ->sortByDesc(fn (Person $person) => $person->isLegalEntity())
+            ->values();
 
         if (! $personId && $people->isNotEmpty()) {
             $personId = $people->first()->id;
@@ -35,8 +37,8 @@ class RecordsController extends Controller
         // Get all records for the selected person and year
         $records = $person && $year ? $this->getRecords($person, $year) : collect();
 
-        // Get shared documents for the selected year
-        $documents = $year ? $this->getDocuments($year) : collect();
+        // Get documents for the selected person and year
+        $documents = $person && $year ? $this->getDocuments($person, $year) : collect();
 
         return view('records.index', [
             'people' => $people,
@@ -155,15 +157,20 @@ class RecordsController extends Controller
             ->values();
     }
 
-    protected function getDocuments(int $year): Collection
+    protected function getDocuments(Person $person, int $year): Collection
     {
         return Document::forYear($year)
+            ->forPerson($person->id)
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(fn ($document) => [
                 'id' => $document->id,
                 'filename' => $document->original_filename,
                 'description' => $document->description,
+                'month' => $document->month,
+                'month_key' => $document->month
+                    ? sprintf('%04d-%02d', $document->year, $document->month)
+                    : null,
                 'download_url' => route('documents.download', $document),
                 'created_at' => $document->created_at,
             ])

@@ -548,6 +548,7 @@ describe('Invoice Tax ID Warning', function () {
     it('needs tax id when amount over 400 EUR and no tax id', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => null,
+            'total_amount' => 100,
         ]);
         // Set amount_eur directly to avoid model recalculation
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 50000])); // €500
@@ -558,6 +559,7 @@ describe('Invoice Tax ID Warning', function () {
     it('does not need tax id when amount is exactly 400 EUR', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => null,
+            'total_amount' => 100,
         ]);
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 40000])); // €400 exactly
 
@@ -567,6 +569,7 @@ describe('Invoice Tax ID Warning', function () {
     it('does not need tax id when amount under 400 EUR', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => null,
+            'total_amount' => 100,
         ]);
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 30000])); // €300
 
@@ -585,6 +588,7 @@ describe('Invoice Tax ID Warning', function () {
     it('does not need tax id when amount is null', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => null,
+            'total_amount' => 100,
         ]);
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => null]));
 
@@ -594,6 +598,7 @@ describe('Invoice Tax ID Warning', function () {
     it('does not need tax id with empty string tax id and high amount', function () {
         $invoice = Invoice::factory()->create([
             'customer_tax_id' => '',
+            'total_amount' => 100,
         ]);
         Invoice::withoutEvents(fn () => $invoice->update(['amount_eur' => 50000])); // €500
 
@@ -635,6 +640,39 @@ describe('Invoice Modification Detection', function () {
         $invoice->update(['generated_state_hash' => $invoice->current_state_hash]);
 
         $invoice->update(['customer_name' => 'Updated Customer']);
+
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
+    });
+
+    it('detects modification when is_simplified changes', function () {
+        $invoice = Invoice::factory()->create([
+            'is_simplified' => false,
+            'total_amount' => 10000,
+            'amount_eur' => 10000,
+            'currency' => 'EUR',
+            'customer_name' => 'Customer',
+            'customer_address' => 'Address',
+            'customer_tax_id' => 'TAX123',
+            'generated_at' => now(),
+        ]);
+        $invoice->update(['generated_state_hash' => $invoice->current_state_hash]);
+
+        $invoice->update(['is_simplified' => true]);
+
+        expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
+    });
+
+    it('detects modification when person changes', function () {
+        $original = Person::factory()->create();
+        $other = Person::factory()->create();
+
+        $invoice = Invoice::factory()->create([
+            'person_id' => $original->id,
+            'generated_at' => now(),
+        ]);
+        $invoice->update(['generated_state_hash' => $invoice->current_state_hash]);
+
+        $invoice->update(['person_id' => $other->id]);
 
         expect($invoice->hasBeenModifiedSinceGeneration())->toBeTrue();
     });
@@ -715,5 +753,138 @@ describe('Invoice Modification Detection', function () {
         expect($invoice->generated_state_hash)->not->toBeNull();
         expect($invoice->generated_state_hash)->toBe($invoice->current_state_hash);
         expect($invoice->hasBeenModifiedSinceGeneration())->toBeFalse();
+    });
+});
+
+describe('Invoice Person Reassignment', function () {
+    it('allocates a new number from the new Person when prefix differs', function () {
+        $original = Person::factory()->create([
+            'invoice_prefix' => 'AAA',
+            'next_invoice_number' => 5,
+        ]);
+        $destination = Person::factory()->create([
+            'invoice_prefix' => 'BBB',
+            'next_invoice_number' => 7,
+        ]);
+
+        $invoice = Invoice::factory()->create([
+            'person_id' => $original->id,
+            'invoice_number' => 'AAA-00004',
+            'invoice_date' => '2025-06-01',
+        ]);
+
+        $invoice->update(['person_id' => $destination->id]);
+
+        expect($invoice->fresh()->invoice_number)->toBe('BBB-00007');
+        expect($destination->fresh()->next_invoice_number)->toBe(8);
+        expect($original->fresh()->next_invoice_number)->toBe(5);
+    });
+
+    it('leaves the original Person counter alone when an invoice is moved away', function () {
+        $original = Person::factory()->create([
+            'invoice_prefix' => 'CCC',
+            'next_invoice_number' => 3,
+        ]);
+        $destination = Person::factory()->create([
+            'invoice_prefix' => 'DDD',
+            'next_invoice_number' => 1,
+        ]);
+
+        $invoice = Invoice::factory()->create([
+            'person_id' => $original->id,
+            'invoice_number' => 'CCC-00002',
+            'invoice_date' => '2025-06-01',
+        ]);
+
+        $invoice->update(['person_id' => $destination->id]);
+
+        expect($original->fresh()->next_invoice_number)->toBe(3);
+    });
+
+    it('does not renumber pending invoices that have no number yet', function () {
+        $original = Person::factory()->create(['invoice_prefix' => 'EEE']);
+        $destination = Person::factory()->create([
+            'invoice_prefix' => 'FFF',
+            'next_invoice_number' => 1,
+        ]);
+
+        $invoice = Invoice::factory()->reviewed()->create([
+            'person_id' => $original->id,
+            'invoice_number' => null,
+        ]);
+
+        $invoice->update(['person_id' => $destination->id]);
+
+        expect($invoice->fresh()->invoice_number)->toBeNull();
+        expect($destination->fresh()->next_invoice_number)->toBe(1);
+    });
+
+    it('rejects a move when the new series ordering would be violated', function () {
+        $original = Person::factory()->create([
+            'invoice_prefix' => 'GGG',
+            'next_invoice_number' => 2,
+        ]);
+        $destination = Person::factory()->create([
+            'invoice_prefix' => 'HHH',
+            'next_invoice_number' => 2,
+        ]);
+
+        // Existing invoice in destination's series with a later date.
+        Invoice::factory()->create([
+            'person_id' => $destination->id,
+            'invoice_number' => 'HHH-00001',
+            'invoice_date' => '2025-08-01',
+        ]);
+
+        $moving = Invoice::factory()->create([
+            'person_id' => $original->id,
+            'invoice_number' => 'GGG-00001',
+            'invoice_date' => '2025-06-01',
+        ]);
+
+        expect(fn () => $moving->update(['person_id' => $destination->id]))
+            ->toThrow(\App\Exceptions\InvoiceOrderingException::class);
+    });
+
+    it('marks the invoice as modified after a Person move so the PDF can be regenerated', function () {
+        $original = Person::factory()->create([
+            'invoice_prefix' => 'III',
+            'next_invoice_number' => 2,
+        ]);
+        $destination = Person::factory()->create([
+            'invoice_prefix' => 'JJJ',
+            'next_invoice_number' => 5,
+        ]);
+
+        $invoice = Invoice::factory()->create([
+            'person_id' => $original->id,
+            'invoice_number' => 'III-00001',
+            'invoice_date' => '2025-06-01',
+            'generated_at' => now(),
+        ]);
+        $invoice->update(['generated_state_hash' => $invoice->current_state_hash]);
+
+        $invoice->update(['person_id' => $destination->id]);
+
+        expect($invoice->fresh()->hasBeenModifiedSinceGeneration())->toBeTrue();
+    });
+
+    it('does not decrement a Person counter when deleting an invoice whose prefix differs', function () {
+        // Simulate an invoice that was moved here from another Person — its
+        // number prefix doesn't match this Person's current invoice_prefix.
+        $person = Person::factory()->create([
+            'invoice_prefix' => 'KKK',
+            'next_invoice_number' => 4,
+        ]);
+
+        $moved = Invoice::factory()->reviewed()->create([
+            'person_id' => $person->id,
+            'invoice_number' => 'OLD-00009',
+            'invoice_date' => '2025-06-01',
+        ]);
+
+        $moved->delete();
+
+        expect($person->fresh()->next_invoice_number)->toBe(4);
     });
 });

@@ -10,6 +10,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Person;
+use App\Models\Quote;
 use Illuminate\Support\Facades\DB;
 
 it('stores Spanish legal entity fields on a Person', function () {
@@ -365,6 +366,47 @@ it('accepts an invoice dated the same day as the previous-numbered one', functio
     expect($second->id)->not->toBeNull();
 });
 
+it('allows a status change on a historical invoice that is already out of order', function () {
+    $person = Person::factory()->create(['invoice_prefix' => 'NSG']);
+
+    $outOfOrder = Invoice::factory()->sent()->create([
+        'person_id' => $person->id,
+        'invoice_number' => 'NSG-00085',
+        'invoice_date' => '2026-03-20',
+    ]);
+
+    // Saved quietly so the ordering guard doesn't block the setup — this is the
+    // shape of data that arrives from a historical import.
+    Invoice::factory()->sent()->make([
+        'person_id' => $person->id,
+        'invoice_number' => 'NSG-00086',
+        'invoice_date' => '2026-01-04',
+    ])->saveQuietly();
+
+    $outOfOrder->markAsPaid();
+
+    expect($outOfOrder->fresh()->status)->toBe(InvoiceStatus::Paid);
+});
+
+it('still rejects an out-of-order date when the date itself is edited', function () {
+    $person = Person::factory()->create();
+
+    Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00001',
+        'invoice_date' => '2026-03-01',
+    ]);
+
+    $second = Invoice::factory()->create([
+        'person_id' => $person->id,
+        'invoice_number' => $person->invoice_prefix.'-00002',
+        'invoice_date' => '2026-03-05',
+    ]);
+
+    expect(fn () => $second->update(['invoice_date' => '2026-02-15']))
+        ->toThrow(InvoiceOrderingException::class);
+});
+
 it('refuses to delete a finalized invoice', function () {
     $person = Person::factory()->create();
     $invoice = Invoice::factory()->create([
@@ -595,6 +637,18 @@ it('does not repeat the legal suffix when the name already has it', function (st
         ->and($html)->toContain('SINOPERRO, S.L.')
         ->and($html)->not->toContain('S.L., S.L.');
 })->with(['invoices.pdf-es', 'invoices.pdf-en']);
+
+it('does not repeat the legal suffix on quotes either', function (string $view) {
+    $sinoperro = Person::where('cif', 'B26722488')->sole();
+
+    $quote = Quote::factory()->create(['person_id' => $sinoperro->id]);
+    $quote->load(['person', 'items']);
+
+    $html = view($view, ['quote' => $quote])->render();
+
+    expect($html)->toContain('SINOPERRO, S.L.')
+        ->and($html)->not->toContain('S.L., S.L.');
+})->with(['quotes.pdf-es', 'quotes.pdf-en']);
 
 it('adds the legal suffix to a company name without one', function () {
     expect(Person::factory()->sociedadLimitada()->make(['name' => 'Acme'])->legalName())->toBe('Acme, S.L.')

@@ -22,6 +22,7 @@ use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 class StripeTransactionsTable
 {
@@ -237,55 +238,70 @@ class StripeTransactionsTable
                         ->requiresConfirmation()
                         ->modalHeading('Generate Invoices')
                         ->modalDescription(function (Collection $records) {
-                            $eligibleCount = $records->filter(fn ($r) => $r->canGenerateInvoice())->count();
+                            $ineligible = $records->filter(fn ($r) => ! $r->canGenerateInvoice());
 
-                            if ($eligibleCount === 0) {
-                                return 'None of the selected transactions can be invoiced. Transactions must be "Ready" and not already invoiced.';
+                            if ($ineligible->isNotEmpty()) {
+                                return 'Some selected transactions are ignored or already processed. Generation is all-or-nothing, so no invoices will be created until the selection only contains transactions that can be invoiced.';
                             }
 
-                            $skippedCount = $records->count() - $eligibleCount;
-                            $message = "{$eligibleCount} transaction(s) will be invoiced.";
+                            $count = $records->count();
 
-                            if ($skippedCount > 0) {
-                                $message .= " {$skippedCount} transaction(s) will be skipped (not ready, ignored, or already invoiced).";
-                            }
-
-                            return $message;
+                            return "{$count} invoice(s) will be generated in date order. If any one fails, none will be created.";
                         })
                         ->color('success')
                         ->action(function (Collection $records) {
+                            $ineligible = $records->filter(fn ($r) => ! $r->canGenerateInvoice());
+
+                            if ($ineligible->isNotEmpty()) {
+                                Notification::make()
+                                    ->danger()
+                                    ->title('No invoices generated')
+                                    ->body('Some selected transactions are ignored or already processed. Remove them from the selection and try again.')
+                                    ->send();
+
+                                return;
+                            }
+
+                            $sorted = $records->sortBy('transaction_date')->values();
+                            $selectedIds = $sorted->pluck('id')->all();
+
+                            $blocked = $sorted->first(fn ($r) => $r->hasPriorUnprocessedTransactions($selectedIds));
+
+                            if ($blocked) {
+                                Notification::make()
+                                    ->danger()
+                                    ->title('No invoices generated')
+                                    ->body('There are earlier unprocessed transactions outside this selection. Process or ignore them first, or include them in the selection.')
+                                    ->send();
+
+                                return;
+                            }
+
                             $invoiceService = app(InvoiceService::class);
-                            $success = 0;
-                            $failed = 0;
-                            $errors = [];
 
-                            $eligibleRecords = $records->filter(fn ($r) => $r->canGenerateInvoice());
-
-                            foreach ($eligibleRecords as $record) {
-                                try {
-                                    $invoiceService->generateInvoiceForTransaction($record);
-                                    $success++;
-                                } catch (\Exception $e) {
-                                    $failed++;
-                                    $errors[] = $e->getMessage();
-                                }
-                            }
-
-                            if ($success > 0) {
+                            try {
+                                DB::transaction(function () use ($sorted, $invoiceService) {
+                                    foreach ($sorted as $record) {
+                                        $invoiceService->generateInvoiceForTransaction($record);
+                                    }
+                                });
+                            } catch (\Throwable $e) {
                                 Notification::make()
-                                    ->success()
-                                    ->title('Invoices Generated')
-                                    ->body("{$success} invoice(s) created successfully.")
+                                    ->danger()
+                                    ->title('No invoices generated')
+                                    ->body('Generation failed and was rolled back: '.$e->getMessage())
                                     ->send();
+
+                                return;
                             }
 
-                            if ($failed > 0) {
-                                Notification::make()
-                                    ->warning()
-                                    ->title('Some Invoices Failed')
-                                    ->body("{$failed} transaction(s) could not be invoiced: ".implode(', ', array_slice($errors, 0, 3)))
-                                    ->send();
-                            }
+                            $count = $sorted->count();
+
+                            Notification::make()
+                                ->success()
+                                ->title('Invoices Generated')
+                                ->body("{$count} invoice(s) created successfully.")
+                                ->send();
                         })
                         ->deselectRecordsAfterCompletion(),
                     BulkAction::make('ignore')

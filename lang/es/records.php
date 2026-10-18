@@ -12,12 +12,16 @@ return [
     'outgoing' => 'Gastos',
     'net' => 'Neto',
     'download_all' => 'Descargar Todo',
+    'download_month' => 'Descargar Mes',
 
     // Table headers
     'date' => 'Fecha',
     'type' => 'Tipo',
     'description' => 'Descripción',
     'amount' => 'Importe',
+    'amount_eur' => 'Importe en EUR',
+    'total_eur' => 'Total (EUR)',
+    'month_subtotal' => 'Subtotal del mes (EUR)',
     'download' => 'Descargar',
 
     // Record types
@@ -32,6 +36,8 @@ return [
 
     // Navigation
     'people' => 'Personas',
+    'businesses' => 'Empresas',
+    'individuals' => 'Autónomos',
     'language' => 'Idioma',
     'english' => 'Inglés',
     'spanish' => 'Español',
