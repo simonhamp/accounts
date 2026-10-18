@@ -28,6 +28,7 @@ class Invoice extends Model
 
     protected $fillable = [
         'person_id',
+        'brand_id',
         'customer_id',
         'parent_invoice_id',
         'bank_account_id',
@@ -533,12 +534,12 @@ class Invoice extends Model
     }
 
     /**
-     * The Stripe account whose transaction this invoice was made from, if any.
-     * Its settings decide who the invoice email comes from.
+     * The brand the invoice is issued under. It decides who the invoice email
+     * comes from and which mail server sends it.
      */
-    public function sourceStripeAccount(): ?StripeAccount
+    public function brand(): BelongsTo
     {
-        return $this->stripeTransactions->first()?->stripeAccount;
+        return $this->belongsTo(Brand::class);
     }
 
     public function scopePending(Builder $query): Builder
@@ -673,7 +674,24 @@ class Invoice extends Model
 
     public function canBeEmailed(): bool
     {
-        return $this->isFinalized() && filled($this->customer_email);
+        return $this->emailBlocker() === null;
+    }
+
+    /**
+     * Why the invoice can't be emailed right now, or null when it can.
+     */
+    public function emailBlocker(): ?string
+    {
+        $brand = $this->brand;
+
+        return match (true) {
+            ! $this->isFinalized() => 'Only finalized invoices can be emailed.',
+            $brand === null => 'Pick a brand for this invoice first.',
+            ! $brand->email_invoices => "Invoice emails are turned off for {$brand->name}.",
+            ! $brand->hasCompleteMailSettings() => "{$brand->name}'s sender or mail server settings aren't complete.",
+            blank($this->customer_email) => 'Add a customer email to the invoice and save it first.',
+            default => null,
+        };
     }
 
     /**
@@ -731,13 +749,17 @@ class Invoice extends Model
     }
 
     /**
-     * An invoice from a Stripe account that emails its invoices, which can't be
-     * emailed because it has no customer email. It stays Ready to Send.
+     * For a Ready to Send invoice whose brand emails its invoices, the reason
+     * it can't be emailed, e.g. a missing customer email. Null otherwise.
+     * Invoices without a brand, or whose brand doesn't email invoices, aren't
+     * flagged.
      */
-    public function needsCustomerEmail(): bool
+    public function emailWarning(): ?string
     {
-        return $this->isReadyToSend()
-            && blank($this->customer_email)
-            && (bool) $this->sourceStripeAccount()?->email_invoices;
+        if (! $this->isReadyToSend() || ! $this->brand?->email_invoices) {
+            return null;
+        }
+
+        return $this->emailBlocker();
     }
 }

@@ -2,8 +2,8 @@
 
 namespace App\Mail;
 
+use App\Models\Brand;
 use App\Models\Invoice;
-use App\Models\StripeAccount;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Address;
@@ -15,8 +15,8 @@ use Illuminate\Queue\SerializesModels;
 /**
  * An invoice or credit note emailed to the customer, with its PDF attached.
  * Who it comes from, the reply-to, the BCC and the language all come from
- * the Stripe account the invoice was made from. An invoice without one goes
- * out from the default mail address in English, under the issuer's name.
+ * the invoice's brand. Sending it through the brand's own mailer is up to
+ * the caller (SendInvoiceEmail).
  */
 class InvoiceMail extends Mailable
 {
@@ -32,22 +32,22 @@ class InvoiceMail extends Mailable
      */
     public function language(): string
     {
-        return $this->account()?->invoice_language === 'es' ? 'es' : 'en';
+        return $this->brand()?->invoiceLanguage() ?? 'en';
     }
 
     public function senderName(): string
     {
-        return $this->account()?->invoice_sender_name ?: $this->invoice->person->legalName();
+        return $this->brand()?->invoice_sender_name ?: $this->invoice->person->legalName();
     }
 
     public function envelope(): Envelope
     {
-        $account = $this->account();
+        $brand = $this->brand();
 
         return new Envelope(
-            from: new Address($account?->invoice_from_address ?: config('mail.from.address'), $this->senderName()),
-            replyTo: $account?->invoice_reply_to ? [new Address($account->invoice_reply_to)] : [],
-            bcc: $account?->invoice_bcc ? [new Address($account->invoice_bcc)] : [],
+            from: new Address($brand?->invoice_from_address ?: config('mail.from.address'), $this->senderName()),
+            replyTo: $brand?->invoice_reply_to ? [new Address($brand->invoice_reply_to)] : [],
+            bcc: $brand?->invoice_bcc ? [new Address($brand->invoice_bcc)] : [],
             subject: __("invoice_mail.subject.{$this->documentType()}", [
                 'number' => $this->invoice->invoice_number,
                 'sender' => $this->senderName(),
@@ -100,9 +100,9 @@ class InvoiceMail extends Mailable
         ];
     }
 
-    protected function account(): ?StripeAccount
+    protected function brand(): ?Brand
     {
-        return $this->invoice->sourceStripeAccount();
+        return $this->invoice->brand;
     }
 
     protected function documentType(): string

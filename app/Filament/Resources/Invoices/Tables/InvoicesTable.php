@@ -45,12 +45,16 @@ class InvoicesTable
                     ->icon(fn ($state) => $state ? 'heroicon-o-exclamation-triangle' : null)
                     ->color('warning')
                     ->tooltip('Invoice over €400 - Customer Tax ID required'),
-                IconColumn::make('needs_customer_email')
+                IconColumn::make('email_warning')
                     ->label('')
-                    ->state(fn ($record) => $record->needsCustomerEmail())
+                    ->state(fn ($record) => $record->emailWarning() !== null)
                     ->icon(fn ($state) => $state ? 'heroicon-o-envelope' : null)
                     ->color('warning')
-                    ->tooltip('No customer email - this invoice was not emailed'),
+                    ->tooltip(fn ($record) => $record->emailWarning() ? 'Not emailed: '.$record->emailWarning() : null),
+                TextColumn::make('brand.name')
+                    ->label('Brand')
+                    ->placeholder('No brand')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('person.name')
                     ->placeholder('Unassigned')
                     ->searchable(),
@@ -268,22 +272,26 @@ class InvoicesTable
                         ->requiresConfirmation()
                         ->modalHeading('Email Invoices to Customers')
                         ->modalDescription(function (Collection $records) {
-                            $sendable = $records->filter(fn ($record) => $record->canBeEmailed());
+                            [$sendable, $blocked] = $records->partition(fn ($record) => $record->canBeEmailed());
 
-                            if ($sendable->isEmpty()) {
-                                return 'None of the selected invoices can be emailed. They need to be finalized and have a customer email.';
-                            }
-
-                            $message = "{$sendable->count()} invoice(s) will be emailed to their customers.";
+                            $message = $sendable->isEmpty()
+                                ? 'None of the selected invoices can be emailed.'
+                                : "{$sendable->count()} invoice(s) will be emailed to their customers, "
+                                    .$sendable->countBy(fn ($record) => $record->brand->name)
+                                        ->map(fn (int $count, string $brand) => "{$count} as {$brand}")
+                                        ->implode(', ')
+                                    .'.';
 
                             $alreadySent = $sendable->filter(fn ($record) => $record->sent_at !== null)->count();
                             if ($alreadySent > 0) {
                                 $message .= " {$alreadySent} of them have been emailed before and will be sent again.";
                             }
 
-                            $skipped = $records->count() - $sendable->count();
-                            if ($skipped > 0) {
-                                $message .= " {$skipped} invoice(s) will be skipped as they are not finalized or have no customer email.";
+                            if ($blocked->isNotEmpty()) {
+                                $message .= " {$blocked->count()} will be skipped: "
+                                    .$blocked->countBy(fn ($record) => $record->emailBlocker())
+                                        ->map(fn (int $count, string $reason) => "{$reason} ({$count})")
+                                        ->implode(' ');
                             }
 
                             return $message;
@@ -460,7 +468,7 @@ class InvoicesTable
                     DeleteBulkAction::make(),
                 ]),
             ])
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['stripeTransactions.stripeAccount', 'quote']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['brand', 'quote']))
             ->defaultSort('created_at', 'desc');
     }
 }

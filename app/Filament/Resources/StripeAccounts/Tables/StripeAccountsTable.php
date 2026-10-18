@@ -5,7 +5,6 @@ namespace App\Filament\Resources\StripeAccounts\Tables;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -19,9 +18,9 @@ class StripeAccountsTable
                     ->searchable(),
                 TextColumn::make('account_name')
                     ->searchable(),
-                IconColumn::make('email_invoices')
-                    ->label('Emails invoices')
-                    ->boolean(),
+                TextColumn::make('brand.name')
+                    ->label('Brand')
+                    ->placeholder('No brand'),
                 TextColumn::make('last_synced_at')
                     ->dateTime()
                     ->sortable(),

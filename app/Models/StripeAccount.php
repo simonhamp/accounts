@@ -13,14 +13,9 @@ class StripeAccount extends Model
 
     protected $fillable = [
         'person_id',
+        'brand_id',
         'account_name',
         'api_key',
-        'email_invoices',
-        'invoice_sender_name',
-        'invoice_from_address',
-        'invoice_reply_to',
-        'invoice_bcc',
-        'invoice_language',
         'last_synced_at',
     ];
 
@@ -28,7 +23,6 @@ class StripeAccount extends Model
     {
         return [
             'api_key' => 'encrypted',
-            'email_invoices' => 'boolean',
             'last_synced_at' => 'datetime',
         ];
     }
@@ -36,6 +30,15 @@ class StripeAccount extends Model
     public function person(): BelongsTo
     {
         return $this->belongsTo(Person::class);
+    }
+
+    /**
+     * The brand invoices from this account's payments are issued and emailed
+     * under.
+     */
+    public function brand(): BelongsTo
+    {
+        return $this->belongsTo(Brand::class);
     }
 
     public function transactions(): HasMany

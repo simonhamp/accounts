@@ -111,6 +111,7 @@ class InvoiceService
 
             $invoice = Invoice::create([
                 'person_id' => $person->id,
+                'brand_id' => $firstTransaction->stripeAccount?->brand_id,
                 'parent_invoice_id' => $firstTransaction->originalCharge?->invoiceItem?->invoice_id,
                 'invoice_number' => $person->allocateNextInvoiceNumber(),
                 'invoice_date' => $firstTransaction->transaction_date,
@@ -170,11 +171,13 @@ class InvoiceService
      * chronological order so invoice numbers and dates stay consistent.
      *
      * With $emailCustomers, each invoice made here for a payment from the
-     * scheduled sync window, on an account that emails invoices, is queued to
-     * go to the customer. Older invoices are never emailed from here, and nor
-     * are invoices for older payments, e.g. ones a backfill brought in.
+     * scheduled sync window, whose brand emails invoices, is queued to go to
+     * the customer. Older invoices are never emailed from here, and nor are
+     * invoices for older payments, e.g. ones a backfill brought in. One that
+     * should go but can't, e.g. without a customer email, is reported in
+     * not_emailed and stays Ready to Send.
      *
-     * @return array{generated: int, failed: int, emailed: int, missing_email: int, errors: array<int, array{transaction_id: int, error: string}>}
+     * @return array{generated: int, failed: int, emailed: int, not_emailed: array<int, array{invoice_number: string, reason: string}>, errors: array<int, array{transaction_id: int, error: string}>}
      */
     public function generateInvoicesForReadyTransactions(?StripeAccount $account = null, bool $emailCustomers = false): array
     {
@@ -192,7 +195,7 @@ class InvoiceService
         $generated = 0;
         $failed = 0;
         $emailed = 0;
-        $missingEmail = 0;
+        $notEmailed = [];
         $errors = [];
 
         $emailPaymentsFrom = now()->subDays(StripeImportService::SCHEDULED_SYNC_DAYS)->startOfDay();
@@ -212,14 +215,18 @@ class InvoiceService
                 continue;
             }
 
-            if (! $emailCustomers
-                || ! $transaction->stripeAccount->email_invoices
-                || $transaction->transaction_date->lt($emailPaymentsFrom)) {
+            if (! $emailCustomers || $transaction->transaction_date->lt($emailPaymentsFrom)) {
                 continue;
             }
 
-            if (blank($invoice->customer_email)) {
-                $missingEmail++;
+            $invoice->refresh();
+
+            if (! $invoice->brand?->email_invoices) {
+                continue;
+            }
+
+            if ($reason = $invoice->emailBlocker()) {
+                $notEmailed[] = ['invoice_number' => $invoice->invoice_number, 'reason' => $reason];
 
                 continue;
             }
@@ -232,7 +239,7 @@ class InvoiceService
             'generated' => $generated,
             'failed' => $failed,
             'emailed' => $emailed,
-            'missing_email' => $missingEmail,
+            'not_emailed' => $notEmailed,
             'errors' => $errors,
         ];
     }

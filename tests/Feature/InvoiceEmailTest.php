@@ -1,10 +1,12 @@
 <?php
 
 use App\Enums\InvoiceStatus;
+use App\Exceptions\BrandMailException;
 use App\Filament\Resources\Invoices\Pages\EditInvoice;
 use App\Filament\Resources\Invoices\Pages\ListInvoices;
 use App\Jobs\SendInvoiceEmail;
 use App\Mail\InvoiceMail;
+use App\Models\Brand;
 use App\Models\Invoice;
 use App\Models\Person;
 use App\Models\StripeAccount;
@@ -12,11 +14,46 @@ use App\Models\StripeTransaction;
 use App\Models\User;
 use App\Services\InvoiceService;
 use App\Services\StripeImportService;
-use Illuminate\Mail\Mailables\Attachment;
+use Filament\Actions\Action;
+use Illuminate\Mail\Transport\ArrayTransport;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mime\Email;
+
+/**
+ * Route every brand mailer to an in-memory transport, and record the SMTP
+ * config each one was built with.
+ *
+ * @return ArrayObject<int, array{config: array<string, mixed>, transport: ArrayTransport}>
+ */
+function captureBrandMailers(): ArrayObject
+{
+    $built = new ArrayObject;
+
+    Mail::extend('smtp', function (array $config) use ($built) {
+        $transport = new ArrayTransport;
+        $built[] = ['config' => $config, 'transport' => $transport];
+
+        return $transport;
+    });
+
+    return $built;
+}
+
+/**
+ * @param  ArrayObject<int, array{config: array<string, mixed>, transport: ArrayTransport}>  $built
+ * @return Collection<int, Email>
+ */
+function sentThroughBrands(ArrayObject $built): Collection
+{
+    return collect($built->getArrayCopy())
+        ->flatMap(fn (array $mailer) => $mailer['transport']->messages()->map->getOriginalMessage());
+}
 
 /**
  * @param  array<string, mixed>  $attributes
@@ -50,19 +87,40 @@ beforeEach(function () {
 
     $this->person = Person::query()->where('cif', 'B26722488')->sole();
 
-    $this->account = StripeAccount::factory()->create([
-        'person_id' => $this->person->id,
-        'account_name' => 'Clickback',
-        'email_invoices' => true,
+    $this->brand = Brand::factory()->emailingInvoices()->create([
+        'name' => 'Clickback',
         'invoice_sender_name' => 'Clickback',
         'invoice_from_address' => 'invoices@clickback.test',
         'invoice_reply_to' => 'support@clickback.test',
         'invoice_bcc' => 'copies@sinoperro.test',
         'invoice_language' => 'en',
+        'smtp_host' => 'smtp.clickback.test',
+        'smtp_port' => 465,
+        'smtp_username' => 'postmaster@clickback.test',
+        'smtp_password' => 'clickback-smtp-secret',
+    ]);
+
+    $this->account = StripeAccount::factory()->create([
+        'person_id' => $this->person->id,
+        'brand_id' => $this->brand->id,
+        'account_name' => 'Clickback',
     ]);
 });
 
 describe('sending on generation', function () {
+    it('gives each invoice its Stripe account\'s brand', function () {
+        Queue::fake();
+        readyStripeTransaction($this->account);
+
+        $unbranded = StripeAccount::factory()->create(['person_id' => $this->person->id, 'brand_id' => null]);
+        readyStripeTransaction($unbranded, ['transaction_date' => now()]);
+
+        app(InvoiceService::class)->generateInvoicesForReadyTransactions();
+
+        expect(Invoice::firstWhere('invoice_number', 'SP-00001')->brand_id)->toBe($this->brand->id)
+            ->and(Invoice::firstWhere('invoice_number', 'SP-00002')->brand_id)->toBeNull();
+    });
+
     it('queues an email for each invoice the run makes', function () {
         Queue::fake();
         readyStripeTransaction($this->account);
@@ -77,15 +135,29 @@ describe('sending on generation', function () {
         Queue::assertPushed(SendInvoiceEmail::class, fn (SendInvoiceEmail $job) => $job->invoice->is($invoice));
     });
 
-    it('does not email when the account has invoice emails turned off', function () {
+    it('does not email when the brand has invoice emails turned off', function () {
         Queue::fake();
-        $this->account->update(['email_invoices' => false]);
+        $this->brand->update(['email_invoices' => false]);
         readyStripeTransaction($this->account);
 
         $result = generateReadyInvoices($this->account);
 
         expect($result['generated'])->toBe(1)
-            ->and($result['emailed'])->toBe(0);
+            ->and($result['emailed'])->toBe(0)
+            ->and($result['not_emailed'])->toBe([]);
+        Queue::assertNothingPushed();
+    });
+
+    it('does not email invoices whose account has no brand', function () {
+        Queue::fake();
+        $this->account->update(['brand_id' => null]);
+        readyStripeTransaction($this->account);
+
+        $result = generateReadyInvoices($this->account);
+
+        expect($result['generated'])->toBe(1)
+            ->and($result['emailed'])->toBe(0)
+            ->and(Invoice::sole()->emailWarning())->toBeNull();
         Queue::assertNothingPushed();
     });
 
@@ -101,11 +173,11 @@ describe('sending on generation', function () {
 
     it('never emails invoices that already existed when emails are turned on', function () {
         Queue::fake();
-        $this->account->update(['email_invoices' => false]);
+        $this->brand->update(['email_invoices' => false]);
         readyStripeTransaction($this->account);
         generateReadyInvoices($this->account);
 
-        $this->account->update(['email_invoices' => true]);
+        $this->brand->update(['email_invoices' => true]);
         $result = generateReadyInvoices($this->account);
 
         expect($result['generated'])->toBe(0)
@@ -113,7 +185,7 @@ describe('sending on generation', function () {
         Queue::assertNothingPushed();
     });
 
-    it('leaves an invoice without a customer email ready to send and flags it', function () {
+    it('leaves an invoice that can\'t be emailed ready to send and says why', function () {
         Queue::fake();
         readyStripeTransaction($this->account, ['customer_email' => null]);
 
@@ -122,19 +194,13 @@ describe('sending on generation', function () {
         $invoice = Invoice::sole();
 
         expect($result['emailed'])->toBe(0)
-            ->and($result['missing_email'])->toBe(1)
+            ->and($result['not_emailed'])->toBe([[
+                'invoice_number' => 'SP-00001',
+                'reason' => 'Add a customer email to the invoice and save it first.',
+            ]])
             ->and($invoice->status)->toBe(InvoiceStatus::ReadyToSend)
-            ->and($invoice->needsCustomerEmail())->toBeTrue();
+            ->and($invoice->emailWarning())->toBe('Add a customer email to the invoice and save it first.');
         Queue::assertNothingPushed();
-    });
-
-    it('does not flag a missing email on accounts that do not email invoices', function () {
-        $this->account->update(['email_invoices' => false]);
-        readyStripeTransaction($this->account, ['customer_email' => null]);
-
-        generateReadyInvoices($this->account);
-
-        expect(Invoice::sole()->needsCustomerEmail())->toBeFalse();
     });
 
     it('does not email invoices for payments older than the scheduled sync window', function () {
@@ -178,25 +244,104 @@ describe('sending on generation', function () {
 });
 
 describe('the email', function () {
-    it('sends the English PDF from the account and records who it went to', function () {
-        Mail::fake();
+    it('goes out through the brand\'s own mail server and records who it went to', function () {
+        $mailers = captureBrandMailers();
         readyStripeTransaction($this->account);
+
         generateReadyInvoices($this->account);
 
-        $invoice = Invoice::sole()->refresh();
+        expect($mailers)->toHaveCount(1)
+            ->and($mailers[0]['config'])->toMatchArray([
+                'transport' => 'smtp',
+                'host' => 'smtp.clickback.test',
+                'port' => 465,
+                'scheme' => null,
+                'username' => 'postmaster@clickback.test',
+                'password' => 'clickback-smtp-secret',
+            ]);
 
-        Mail::assertSent(InvoiceMail::class, function (InvoiceMail $mail) use ($invoice) {
-            return $mail->hasTo('billing@acme.test')
-                && $mail->hasFrom('invoices@clickback.test', 'Clickback')
-                && $mail->hasReplyTo('support@clickback.test')
-                && $mail->hasBcc('copies@sinoperro.test')
-                && $mail->hasSubject('Invoice SP-00001 from Clickback')
-                && $mail->hasAttachment(Attachment::fromStorage($invoice->pdf_path_en)->as('SP-00001.pdf')->withMime('application/pdf'));
-        });
+        $email = sentThroughBrands($mailers)->sole();
+        $attachment = $email->getAttachments()[0];
+
+        expect($email->getFrom()[0]->getName())->toBe('Clickback')
+            ->and($email->getFrom()[0]->getAddress())->toBe('invoices@clickback.test')
+            ->and($email->getTo()[0]->getAddress())->toBe('billing@acme.test')
+            ->and($email->getReplyTo()[0]->getAddress())->toBe('support@clickback.test')
+            ->and($email->getBcc()[0]->getAddress())->toBe('copies@sinoperro.test')
+            ->and($email->getSubject())->toBe('Invoice SP-00001 from Clickback')
+            ->and($email->getTextBody())->toContain('Invoice number: SP-00001')
+            ->and($attachment->getFilename())->toBe('SP-00001.pdf')
+            ->and($attachment->getMediaType().'/'.$attachment->getMediaSubtype())->toBe('application/pdf')
+            ->and($attachment->getBody())->toBe(Storage::get(Invoice::sole()->pdf_path_en));
+
+        $invoice = Invoice::sole();
 
         expect($invoice->status)->toBe(InvoiceStatus::Sent)
             ->and($invoice->sent_to)->toBe('billing@acme.test')
             ->and($invoice->sent_at->toDateTimeString())->toBe('2026-10-17 12:00:00');
+    });
+
+    it('never touches the app\'s default mailer', function () {
+        captureBrandMailers();
+        readyStripeTransaction($this->account);
+
+        generateReadyInvoices($this->account);
+
+        expect(app('mailer')->getSymfonyTransport()->messages())->toHaveCount(0);
+    });
+
+    it('uses each brand\'s own settings', function () {
+        $mailers = captureBrandMailers();
+
+        $laradevs = Brand::factory()->emailingInvoices()->create([
+            'name' => 'Laradevs',
+            'invoice_sender_name' => 'Laradevs',
+            'invoice_from_address' => 'billing@laradevs.test',
+            'invoice_language' => 'es',
+            'smtp_host' => 'smtp.laradevs.test',
+            'smtp_port' => 587,
+            'smtp_scheme' => 'smtp',
+            'smtp_username' => 'laradevs',
+            'smtp_password' => 'laradevs-smtp-secret',
+        ]);
+        $laradevsAccount = StripeAccount::factory()->create([
+            'person_id' => $this->person->id,
+            'brand_id' => $laradevs->id,
+        ]);
+
+        readyStripeTransaction($this->account, ['transaction_date' => now()->subDays(2)]);
+        readyStripeTransaction($laradevsAccount, ['customer_email' => 'dev@client.test']);
+
+        app(InvoiceService::class)->generateInvoicesForReadyTransactions(emailCustomers: true);
+
+        expect(collect($mailers->getArrayCopy())->pluck('config')->map(fn (array $config) => Arr::only($config, ['host', 'port', 'scheme', 'username', 'password']))->all())->toEqual([
+            ['host' => 'smtp.clickback.test', 'port' => 465, 'scheme' => null, 'username' => 'postmaster@clickback.test', 'password' => 'clickback-smtp-secret'],
+            ['host' => 'smtp.laradevs.test', 'port' => 587, 'scheme' => 'smtp', 'username' => 'laradevs', 'password' => 'laradevs-smtp-secret'],
+        ]);
+
+        $clickbackEmail = $mailers[0]['transport']->messages()->sole()->getOriginalMessage();
+        $laradevsEmail = $mailers[1]['transport']->messages()->sole()->getOriginalMessage();
+
+        expect($clickbackEmail->getFrom()[0]->getAddress())->toBe('invoices@clickback.test')
+            ->and($clickbackEmail->getSubject())->toBe('Invoice SP-00001 from Clickback')
+            ->and($laradevsEmail->getFrom()[0]->getAddress())->toBe('billing@laradevs.test')
+            ->and($laradevsEmail->getTo()[0]->getAddress())->toBe('dev@client.test')
+            ->and($laradevsEmail->getSubject())->toBe('Factura SP-00002 de Laradevs')
+            ->and($laradevsEmail->getAttachments()[0]->getBody())
+            ->toBe(Storage::get(Invoice::firstWhere('invoice_number', 'SP-00002')->pdf_path));
+    });
+
+    it('builds the mailer from the settings saved when it sends', function () {
+        Queue::fake();
+        $mailers = captureBrandMailers();
+        readyStripeTransaction($this->account);
+        generateReadyInvoices($this->account);
+
+        $this->brand->update(['smtp_host' => 'smtp.new-provider.test', 'smtp_password' => 'rotated-secret']);
+        (new SendInvoiceEmail(Invoice::sole()))->handle(app(InvoiceService::class));
+
+        expect($mailers[0]['config']['host'])->toBe('smtp.new-provider.test')
+            ->and($mailers[0]['config']['password'])->toBe('rotated-secret');
     });
 
     it('says who the invoice comes from and who issues it', function () {
@@ -250,52 +395,30 @@ describe('the email', function () {
             TEXT);
     });
 
-    it('attaches the Spanish PDF and writes in Spanish when the account says so', function () {
-        Mail::fake();
-        $this->account->update(['invoice_language' => 'es']);
-        readyStripeTransaction($this->account, ['amount' => 123456, 'customer_email' => 'facturas@cliente.test']);
+    it('writes in Spanish and attaches the Spanish PDF when the brand says so', function () {
+        $mailers = captureBrandMailers();
+        $this->brand->update(['invoice_language' => 'es']);
+        readyStripeTransaction($this->account, ['amount' => 123456]);
+
         generateReadyInvoices($this->account);
 
-        $invoice = Invoice::sole()->refresh();
+        $invoice = Invoice::sole();
+        $email = sentThroughBrands($mailers)->sole();
 
-        Mail::assertSent(InvoiceMail::class, fn (InvoiceMail $mail) => $mail->hasSubject('Factura SP-00001 de Clickback')
-            && $mail->hasAttachment(Attachment::fromStorage($invoice->pdf_path)->as('SP-00001.pdf')->withMime('application/pdf'))
-            && ! $mail->hasAttachment(Attachment::fromStorage($invoice->pdf_path_en)->as('SP-00001.pdf')->withMime('application/pdf')));
-
-        expect((new InvoiceMail($invoice))->render())
+        expect($email->getSubject())->toBe('Factura SP-00001 de Clickback')
+            ->and($email->getAttachments()[0]->getBody())->toBe(Storage::get($invoice->pdf_path))
+            ->and($email->getTextBody())
             ->toContain('Adjuntamos la factura de Clickback.')
             ->toContain('Fecha: 16 de octubre de 2026')
             ->toContain('Total: 1.234,56 EUR')
             ->toContain('Esta factura la emite SINOPERRO, S.L. (CIF B26722488).');
     });
 
-    it('goes out through the mailer with the headers and PDF in place', function () {
-        readyStripeTransaction($this->account);
-        generateReadyInvoices($this->account);
-
-        $messages = app('mailer')->getSymfonyTransport()->messages();
-
-        expect($messages)->toHaveCount(1);
-
-        $email = $messages->first()->getOriginalMessage();
-        $attachment = $email->getAttachments()[0];
-
-        expect($email->getFrom()[0]->getName())->toBe('Clickback')
-            ->and($email->getFrom()[0]->getAddress())->toBe('invoices@clickback.test')
-            ->and($email->getTo()[0]->getAddress())->toBe('billing@acme.test')
-            ->and($email->getReplyTo()[0]->getAddress())->toBe('support@clickback.test')
-            ->and($email->getBcc()[0]->getAddress())->toBe('copies@sinoperro.test')
-            ->and($email->getSubject())->toBe('Invoice SP-00001 from Clickback')
-            ->and($email->getTextBody())->toContain('Invoice number: SP-00001')
-            ->and($attachment->getFilename())->toBe('SP-00001.pdf')
-            ->and($attachment->getMediaType().'/'.$attachment->getMediaSubtype())->toBe('application/pdf')
-            ->and($attachment->getBody())->toStartWith('%PDF');
-    });
-
     it('makes the PDF first when it does not exist yet', function () {
-        Mail::fake();
+        $mailers = captureBrandMailers();
         $invoice = Invoice::factory()->readyToSend()->create([
             'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
             'customer_email' => 'someone@example.test',
             'pdf_path' => null,
             'pdf_path_en' => null,
@@ -307,28 +430,15 @@ describe('the email', function () {
 
         expect($invoice->pdf_path_en)->not->toBeNull()
             ->and(Storage::exists($invoice->pdf_path_en))->toBeTrue()
-            ->and($invoice->sent_to)->toBe('someone@example.test');
-        Mail::assertSent(InvoiceMail::class, fn (InvoiceMail $mail) => $mail->hasAttachment(Attachment::fromStorage($invoice->pdf_path_en)->as($invoice->invoice_number.'.pdf')->withMime('application/pdf')));
-    });
-
-    it('uses the default from address and the issuer name for an invoice not made from Stripe', function () {
-        Mail::fake();
-        config(['mail.from.address' => 'accounts@sinoperro.test']);
-        $invoice = Invoice::factory()->readyToSend()->create([
-            'person_id' => $this->person->id,
-            'customer_email' => 'someone@example.test',
-        ]);
-
-        SendInvoiceEmail::dispatch($invoice);
-
-        Mail::assertSent(InvoiceMail::class, fn (InvoiceMail $mail) => $mail->hasFrom('accounts@sinoperro.test', 'SINOPERRO, S.L.')
-            && $mail->language() === 'en');
+            ->and($invoice->sent_to)->toBe('someone@example.test')
+            ->and(sentThroughBrands($mailers)->sole()->getAttachments()[0]->getBody())->toBe(Storage::get($invoice->pdf_path_en));
     });
 
     it('keeps a paid invoice paid when it is resent', function () {
-        Mail::fake();
+        captureBrandMailers();
         $invoice = Invoice::factory()->paid()->create([
             'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
             'customer_email' => 'someone@example.test',
             'sent_at' => now()->subWeek(),
             'sent_to' => 'old@example.test',
@@ -343,17 +453,92 @@ describe('the email', function () {
             ->and($invoice->sent_at->toDateTimeString())->toBe('2026-10-17 12:00:00');
     });
 
-    it('does nothing for an invoice without an email or not yet finalized', function () {
-        Mail::fake();
-        $withoutEmail = Invoice::factory()->readyToSend()->create(['person_id' => $this->person->id, 'customer_email' => null]);
-        $notFinalized = Invoice::factory()->reviewed()->create(['person_id' => $this->person->id, 'customer_email' => 'a@example.test']);
+    it('skips an invoice that can no longer be emailed when the job runs', function () {
+        $mailers = captureBrandMailers();
+        $invoice = Invoice::factory()->readyToSend()->create([
+            'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
+            'customer_email' => 'someone@example.test',
+        ]);
+        $this->brand->update(['email_invoices' => false]);
 
-        SendInvoiceEmail::dispatch($withoutEmail);
-        SendInvoiceEmail::dispatch($notFinalized);
+        SendInvoiceEmail::dispatch($invoice);
 
-        Mail::assertNothingSent();
-        expect($withoutEmail->fresh()->sent_at)->toBeNull()
-            ->and($notFinalized->fresh()->sent_at)->toBeNull();
+        expect($mailers)->toHaveCount(0)
+            ->and($invoice->fresh()->sent_at)->toBeNull()
+            ->and($invoice->fresh()->status)->toBe(InvoiceStatus::ReadyToSend);
+    });
+
+    it('fails without the SMTP password anywhere in the exception', function () {
+        Mail::extend('smtp', fn () => throw new TransportException(
+            'Failed to authenticate with password "clickback-smtp-secret" (AUTH '.base64_encode('clickback-smtp-secret').')'
+        ));
+        $invoice = Invoice::factory()->readyToSend()->create([
+            'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
+            'customer_email' => 'someone@example.test',
+        ]);
+
+        try {
+            (new SendInvoiceEmail($invoice))->handle(app(InvoiceService::class));
+            $this->fail('The job should have failed.');
+        } catch (BrandMailException $e) {
+            expect((string) $e)
+                ->toContain("Couldn't send invoice {$invoice->invoice_number} through Clickback's mail server (smtp.clickback.test:465)")
+                ->not->toContain('clickback-smtp-secret')
+                ->not->toContain(base64_encode('clickback-smtp-secret'))
+                ->and($e->getPrevious())->toBeNull();
+        }
+
+        expect($invoice->fresh()->sent_at)->toBeNull();
+    });
+});
+
+describe('why an invoice can\'t be emailed', function () {
+    it('gives a clear reason for each case', function (Closure $setUp, ?string $reason) {
+        $invoice = Invoice::factory()->readyToSend()->create([
+            'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
+            'customer_email' => 'someone@example.test',
+        ]);
+
+        $setUp($invoice, $this->brand);
+
+        $invoice = $invoice->fresh();
+
+        expect($invoice->emailBlocker())->toBe($reason)
+            ->and($invoice->canBeEmailed())->toBe($reason === null);
+    })->with([
+        'ready' => [fn () => null, null],
+        'not finalized' => [fn (Invoice $invoice) => $invoice->forceFill(['status' => InvoiceStatus::Reviewed])->saveQuietly(), 'Only finalized invoices can be emailed.'],
+        'no brand' => [fn (Invoice $invoice) => $invoice->forceFill(['brand_id' => null])->saveQuietly(), 'Pick a brand for this invoice first.'],
+        'emails off' => [fn (Invoice $invoice, Brand $brand) => $brand->update(['email_invoices' => false]), 'Invoice emails are turned off for Clickback.'],
+        'no mail server' => [fn (Invoice $invoice, Brand $brand) => $brand->update(['smtp_host' => null]), "Clickback's sender or mail server settings aren't complete."],
+        'no password' => [fn (Invoice $invoice, Brand $brand) => $brand->update(['smtp_password' => null]), "Clickback's sender or mail server settings aren't complete."],
+        'no from address' => [fn (Invoice $invoice, Brand $brand) => $brand->update(['invoice_from_address' => null]), "Clickback's sender or mail server settings aren't complete."],
+        'no customer email' => [fn (Invoice $invoice) => $invoice->forceFill(['customer_email' => null])->saveQuietly(), 'Add a customer email to the invoice and save it first.'],
+    ]);
+
+    it('only flags invoices whose brand emails invoices', function () {
+        $flagged = Invoice::factory()->readyToSend()->create([
+            'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
+            'customer_email' => null,
+        ]);
+        $quietBrand = Brand::factory()->create();
+        $notFlagged = Invoice::factory()->readyToSend()->create([
+            'person_id' => $this->person->id,
+            'brand_id' => $quietBrand->id,
+            'customer_email' => null,
+        ]);
+        $noBrand = Invoice::factory()->readyToSend()->create([
+            'person_id' => $this->person->id,
+            'customer_email' => null,
+        ]);
+
+        expect($flagged->emailWarning())->toBe('Add a customer email to the invoice and save it first.')
+            ->and($notFlagged->emailWarning())->toBeNull()
+            ->and($noBrand->emailWarning())->toBeNull();
     });
 });
 
@@ -362,11 +547,11 @@ describe('sending by hand', function () {
         $this->actingAs(User::factory()->admin()->create());
     });
 
-    it('sends from the edit page after confirming the recipient', function () {
-        Mail::fake();
-        $this->account->update(['email_invoices' => false]);
+    it('sends from the edit page after confirming the brand and recipient', function () {
+        $mailers = captureBrandMailers();
+        $this->brand->update(['email_invoices' => true]);
         readyStripeTransaction($this->account);
-        generateReadyInvoices($this->account);
+        app(InvoiceService::class)->generateInvoicesForReadyTransactions($this->account);
         $invoice = Invoice::sole();
 
         Livewire::test(EditInvoice::class, ['record' => $invoice->id])
@@ -376,21 +561,24 @@ describe('sending by hand', function () {
             ->mountAction('emailInvoice')
             ->assertMountedActionModalSee([
                 'billing@acme.test',
+                'as Clickback',
                 'Clickback <invoices@clickback.test>',
+                'through smtp.clickback.test',
                 'copies@sinoperro.test',
             ])
             ->callMountedAction()
             ->assertHasNoActionErrors();
 
-        Mail::assertSent(InvoiceMail::class, fn (InvoiceMail $mail) => $mail->hasTo('billing@acme.test'));
-        expect($invoice->fresh()->status)->toBe(InvoiceStatus::Sent)
+        expect(sentThroughBrands($mailers)->sole()->getTo()[0]->getAddress())->toBe('billing@acme.test')
+            ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Sent)
             ->and($invoice->fresh()->sent_to)->toBe('billing@acme.test');
     });
 
     it('offers to resend an invoice that has been sent', function () {
-        Mail::fake();
+        $mailers = captureBrandMailers();
         $invoice = Invoice::factory()->sent()->create([
             'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
             'customer_email' => 'someone@example.test',
             'sent_at' => now()->subDay(),
             'sent_to' => 'someone@example.test',
@@ -400,24 +588,26 @@ describe('sending by hand', function () {
             ->assertActionHasLabel('emailInvoice', 'Resend')
             ->callAction('emailInvoice');
 
-        Mail::assertSent(InvoiceMail::class, 1);
-        expect($invoice->fresh()->sent_at->toDateTimeString())->toBe('2026-10-17 12:00:00');
+        expect(sentThroughBrands($mailers))->toHaveCount(1)
+            ->and($invoice->fresh()->sent_at->toDateTimeString())->toBe('2026-10-17 12:00:00');
     });
 
-    it('disables sending without a customer email', function () {
+    it('disables sending and says why', function () {
         $invoice = Invoice::factory()->readyToSend()->create([
             'person_id' => $this->person->id,
-            'customer_email' => null,
+            'customer_email' => 'someone@example.test',
         ]);
 
         Livewire::test(EditInvoice::class, ['record' => $invoice->id])
             ->assertActionVisible('emailInvoice')
-            ->assertActionDisabled('emailInvoice');
+            ->assertActionDisabled('emailInvoice')
+            ->assertActionExists('emailInvoice', fn (Action $action) => $action->getTooltip() === 'Pick a brand for this invoice first.');
     });
 
     it('only offers sending for finalized invoices', function () {
         $invoice = Invoice::factory()->reviewed()->create([
             'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
             'customer_email' => 'someone@example.test',
         ]);
 
@@ -425,22 +615,40 @@ describe('sending by hand', function () {
             ->assertActionHidden('emailInvoice');
     });
 
-    it('shows the missing email warning on the edit page', function () {
+    it('shows why an invoice was not emailed on the edit page', function () {
         readyStripeTransaction($this->account, ['customer_email' => null]);
         app(InvoiceService::class)->generateInvoicesForReadyTransactions($this->account);
 
         Livewire::test(EditInvoice::class, ['record' => Invoice::sole()->id])
-            ->assertSee('No customer email - this invoice was not emailed');
+            ->assertSee('This invoice was not emailed: Add a customer email to the invoice and save it first.');
     });
 
-    it('sends from the invoices table', function () {
-        Mail::fake();
+    it('lets the brand be picked on the invoice form', function () {
         $invoice = Invoice::factory()->readyToSend()->create([
             'person_id' => $this->person->id,
             'customer_email' => 'someone@example.test',
         ]);
+
+        Livewire::test(EditInvoice::class, ['record' => $invoice->id])
+            ->assertFormSet(['brand_id' => null])
+            ->fillForm(['brand_id' => $this->brand->id])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        expect($invoice->fresh()->brand_id)->toBe($this->brand->id)
+            ->and($invoice->fresh()->canBeEmailed())->toBeTrue();
+    });
+
+    it('sends from the invoices table', function () {
+        $mailers = captureBrandMailers();
+        $invoice = Invoice::factory()->readyToSend()->create([
+            'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
+            'customer_email' => 'someone@example.test',
+        ]);
         $withoutEmail = Invoice::factory()->readyToSend()->create([
             'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
             'customer_email' => null,
         ]);
 
@@ -449,34 +657,42 @@ describe('sending by hand', function () {
             ->assertTableActionDisabled('emailInvoice', $withoutEmail)
             ->callTableAction('emailInvoice', $invoice);
 
-        Mail::assertSent(InvoiceMail::class, fn (InvoiceMail $mail) => $mail->hasTo('someone@example.test'));
+        expect(sentThroughBrands($mailers)->sole()->getTo()[0]->getAddress())->toBe('someone@example.test');
     });
 
-    it('flags invoices without an email in the table', function () {
+    it('flags invoices that were not emailed in the table', function () {
         readyStripeTransaction($this->account, ['customer_email' => null]);
         app(InvoiceService::class)->generateInvoicesForReadyTransactions($this->account);
 
         Livewire::test(ListInvoices::class)
-            ->assertTableColumnStateSet('needs_customer_email', true, Invoice::sole());
+            ->assertTableColumnStateSet('email_warning', true, Invoice::sole());
     });
 
-    it('emails the selected invoices that can be emailed in bulk', function () {
+    it('emails the selected invoices that can be emailed in bulk and says why others are skipped', function () {
         Queue::fake();
         $sendable = Invoice::factory()->readyToSend()->create([
             'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
             'customer_email' => 'someone@example.test',
         ]);
         $withoutEmail = Invoice::factory()->readyToSend()->create([
             'person_id' => $this->person->id,
+            'brand_id' => $this->brand->id,
             'customer_email' => null,
         ]);
-        $pending = Invoice::factory()->reviewed()->create([
+        $withoutBrand = Invoice::factory()->readyToSend()->create([
             'person_id' => $this->person->id,
             'customer_email' => 'other@example.test',
         ]);
 
         Livewire::test(ListInvoices::class)
-            ->callTableBulkAction('emailInvoices', [$sendable, $withoutEmail, $pending]);
+            ->mountTableBulkAction('emailInvoices', [$sendable, $withoutEmail, $withoutBrand])
+            ->assertMountedActionModalSee([
+                '1 invoice(s) will be emailed to their customers, 1 as Clickback.',
+                'Add a customer email to the invoice and save it first. (1)',
+                'Pick a brand for this invoice first. (1)',
+            ])
+            ->callMountedTableBulkAction();
 
         Queue::assertPushed(SendInvoiceEmail::class, 1);
         Queue::assertPushed(SendInvoiceEmail::class, fn (SendInvoiceEmail $job) => $job->invoice->is($sendable));

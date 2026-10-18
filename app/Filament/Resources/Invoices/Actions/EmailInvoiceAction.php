@@ -9,9 +9,10 @@ use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 
 /**
- * Send, or resend, a finalized invoice to the customer by email. Offered on
- * the invoice edit page and in the invoices table, and disabled until the
- * invoice has a customer email.
+ * Send, or resend, a finalized invoice to the customer by email, through its
+ * brand's mail server. Offered on the invoice edit page and in the invoices
+ * table. It is disabled, with the reason as a tooltip, while the invoice
+ * can't be emailed.
  */
 class EmailInvoiceAction extends Action
 {
@@ -29,10 +30,8 @@ class EmailInvoiceAction extends Action
             ->icon('heroicon-o-envelope')
             ->color('primary')
             ->visible(fn (Invoice $record): bool => $record->isFinalized())
-            ->disabled(fn (Invoice $record): bool => blank($record->customer_email))
-            ->tooltip(fn (Invoice $record): ?string => blank($record->customer_email)
-                ? 'Add a customer email to the invoice and save it first'
-                : null)
+            ->disabled(fn (Invoice $record): bool => ! $record->canBeEmailed())
+            ->tooltip(fn (Invoice $record): ?string => $record->emailBlocker())
             ->requiresConfirmation()
             ->modalIcon('heroicon-o-envelope')
             ->modalHeading(fn (Invoice $record): string => ($record->sent_at ? 'Resend' : 'Send')." {$this->documentName($record)} {$record->invoice_number}")
@@ -51,15 +50,16 @@ class EmailInvoiceAction extends Action
 
     protected function confirmationMessage(Invoice $record): string
     {
+        $brand = $record->brand;
         $mail = new InvoiceMail($record);
         $from = $mail->envelope()->from;
 
         $message = "This emails the {$this->documentName($record)} to {$record->customer_email}"
-            ." from {$from->name} <{$from->address}>, with the PDF in "
-            .($mail->language() === 'es' ? 'Spanish' : 'English').'.';
+            ." as {$brand?->name}, from {$from->name} <{$from->address}>, through {$brand?->smtp_host},"
+            .' with the PDF in '.($mail->language() === 'es' ? 'Spanish' : 'English').'.';
 
-        if ($bcc = $record->sourceStripeAccount()?->invoice_bcc) {
-            $message .= " A copy goes to {$bcc}.";
+        if ($brand?->invoice_bcc) {
+            $message .= " A copy goes to {$brand->invoice_bcc}.";
         }
 
         if ($record->sent_at) {
