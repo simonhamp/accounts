@@ -15,6 +15,8 @@ class StripeSyncTransactions extends Command
                             {--month= : Sync transactions for specific month (1-12)}
                             {--skip-auto-invoice : Skip auto-generating invoices for ready transactions}';
 
+    protected $help = 'Invoices are only emailed to customers on a scheduled sync (no --year or --month), when the Stripe account\'s brand has invoice emails turned on.';
+
     protected $description = 'Sync Stripe transactions from all configured accounts';
 
     public function handle(StripeImportService $importService, InvoiceService $invoiceService): int
@@ -56,6 +58,10 @@ class StripeSyncTransactions extends Command
                 $this->info("  ✓ Imported {$imported['payments']} payments");
                 $this->info("  ✓ Imported {$imported['refunds']} refunds");
                 $this->info("  ✓ Imported {$imported['disputes']} disputes");
+
+                foreach ($imported['warnings'] as $warning) {
+                    $this->warn("  ! {$warning}");
+                }
             } catch (\Exception $e) {
                 $this->error("  ✗ Failed: {$e->getMessage()}");
 
@@ -71,9 +77,19 @@ class StripeSyncTransactions extends Command
             $this->info('Auto-generating invoices for ready transactions...');
 
             $accountFilter = $accounts->count() === 1 ? $accounts->first() : null;
-            $result = $invoiceService->generateInvoicesForReadyTransactions($accountFilter);
+            $isBackfill = $year !== null;
+            $result = $invoiceService->generateInvoicesForReadyTransactions($accountFilter, emailCustomers: ! $isBackfill);
 
             $this->info("  ✓ Generated {$result['generated']} invoice(s)");
+            if ($result['emailed'] > 0) {
+                $this->info("  ✓ Queued {$result['emailed']} invoice email(s) to customers");
+            }
+            if ($result['not_emailed'] !== []) {
+                $this->warn('  ! '.count($result['not_emailed']).' invoice(s) could not be emailed and were left Ready to Send');
+                foreach ($result['not_emailed'] as $notEmailed) {
+                    $this->line("    {$notEmailed['invoice_number']}: {$notEmailed['reason']}");
+                }
+            }
             if ($result['failed'] > 0) {
                 $this->warn("  ✗ Failed to generate {$result['failed']} invoice(s); see logs for details");
                 foreach ($result['errors'] as $error) {

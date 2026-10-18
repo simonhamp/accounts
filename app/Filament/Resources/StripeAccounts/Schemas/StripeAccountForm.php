@@ -18,6 +18,12 @@ class StripeAccountForm
                     ->relationship('person', 'name')
                     ->required()
                     ->default(fn () => \App\Models\Person::default()?->id),
+                Select::make('brand_id')
+                    ->label('Brand')
+                    ->relationship('brand', 'name')
+                    ->preload()
+                    ->placeholder('No brand')
+                    ->helperText('Invoices made from this account\'s payments are issued and emailed under this brand.'),
                 TextInput::make('account_name')
                     ->required(),
                 Textarea::make('api_key')

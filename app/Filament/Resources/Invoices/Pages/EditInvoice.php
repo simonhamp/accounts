@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Invoices\Pages;
 
 use App\Enums\InvoiceStatus;
+use App\Filament\Resources\Invoices\Actions\EmailInvoiceAction;
 use App\Filament\Resources\Invoices\InvoiceResource;
 use App\Filament\Resources\Quotes\QuoteResource;
 use App\Filament\Resources\StripeTransactions\StripeTransactionResource;
@@ -109,6 +110,9 @@ class EditInvoice extends EditRecord
                             ->send();
                     }
                 }),
+
+            EmailInvoiceAction::make()
+                ->after(fn () => $this->refreshFormData(['status'])),
 
             Action::make('markSent')
                 ->label('Mark as Sent')

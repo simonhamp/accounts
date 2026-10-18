@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SendInvoiceEmail;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Person;
@@ -110,13 +111,16 @@ class InvoiceService
 
             $invoice = Invoice::create([
                 'person_id' => $person->id,
+                'brand_id' => $firstTransaction->stripeAccount?->brand_id,
+                'parent_invoice_id' => $firstTransaction->originalCharge?->invoiceItem?->invoice_id,
                 'invoice_number' => $person->allocateNextInvoiceNumber(),
                 'invoice_date' => $firstTransaction->transaction_date,
                 'period_month' => $month,
                 'period_year' => $year,
                 'customer_name' => $customerName,
                 'customer_address' => $firstTransaction->customer_address,
-                'customer_tax_id' => null,
+                'customer_tax_id' => $firstTransaction->formattedCustomerTaxId(),
+                'customer_email' => $firstTransaction->customer_email,
                 'total_amount' => 0,
                 'currency' => $currency,
                 'is_simplified' => $isSimplified,
@@ -149,12 +153,33 @@ class InvoiceService
     }
 
     /**
+     * Make sure both PDFs exist and match the invoice, generating them when a
+     * file is missing or the invoice has changed since they were made.
+     */
+    public function ensurePdfIsCurrent(Invoice $invoice): void
+    {
+        $missing = collect([$invoice->pdf_path, $invoice->pdf_path_en])
+            ->contains(fn (?string $path) => blank($path) || ! Storage::exists($path));
+
+        if ($missing || $invoice->hasBeenModifiedSinceGeneration()) {
+            $this->generateAndStorePdf($invoice);
+        }
+    }
+
+    /**
      * Generate one invoice per ready, unprocessed Stripe transaction in
      * chronological order so invoice numbers and dates stay consistent.
      *
-     * @return array{generated: int, failed: int, errors: array<int, array{transaction_id: int, error: string}>}
+     * With $emailCustomers, each invoice made here for a payment from the
+     * scheduled sync window, whose brand emails invoices, is queued to go to
+     * the customer. Older invoices are never emailed from here, and nor are
+     * invoices for older payments, e.g. ones a backfill brought in. One that
+     * should go but can't, e.g. without a customer email, is reported in
+     * not_emailed and stays Ready to Send.
+     *
+     * @return array{generated: int, failed: int, emailed: int, not_emailed: array<int, array{invoice_number: string, reason: string}>, errors: array<int, array{transaction_id: int, error: string}>}
      */
-    public function generateInvoicesForReadyTransactions(?StripeAccount $account = null): array
+    public function generateInvoicesForReadyTransactions(?StripeAccount $account = null, bool $emailCustomers = false): array
     {
         $query = StripeTransaction::query()
             ->where('status', 'ready')
@@ -169,11 +194,15 @@ class InvoiceService
 
         $generated = 0;
         $failed = 0;
+        $emailed = 0;
+        $notEmailed = [];
         $errors = [];
+
+        $emailPaymentsFrom = now()->subDays(StripeImportService::SCHEDULED_SYNC_DAYS)->startOfDay();
 
         foreach ($transactions as $transaction) {
             try {
-                $this->generateInvoiceForTransaction($transaction);
+                $invoice = $this->generateInvoiceForTransaction($transaction);
                 $generated++;
             } catch (\Throwable $e) {
                 $failed++;
@@ -182,10 +211,37 @@ class InvoiceService
                     'transaction_id' => $transaction->id,
                     'error' => $e->getMessage(),
                 ]);
+
+                continue;
             }
+
+            if (! $emailCustomers || $transaction->transaction_date->lt($emailPaymentsFrom)) {
+                continue;
+            }
+
+            $invoice->refresh();
+
+            if (! $invoice->brand?->email_invoices) {
+                continue;
+            }
+
+            if ($reason = $invoice->emailBlocker()) {
+                $notEmailed[] = ['invoice_number' => $invoice->invoice_number, 'reason' => $reason];
+
+                continue;
+            }
+
+            SendInvoiceEmail::dispatch($invoice);
+            $emailed++;
         }
 
-        return ['generated' => $generated, 'failed' => $failed, 'errors' => $errors];
+        return [
+            'generated' => $generated,
+            'failed' => $failed,
+            'emailed' => $emailed,
+            'not_emailed' => $notEmailed,
+            'errors' => $errors,
+        ];
     }
 
     public function finalizeImportedInvoice(Invoice $invoice): Invoice

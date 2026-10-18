@@ -61,6 +61,19 @@ class InvoiceForm
                     ->columnSpanFull()
                     ->visible(fn ($record) => $record?->needsTaxId()),
 
+                Placeholder::make('email_warning')
+                    ->hiddenLabel()
+                    ->content(fn ($record) => new HtmlString(
+                        '<div style="background-color: #fef3c7; border: 1px solid #fcd34d; border-radius: 0.5rem; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.5rem; color: #92400e; font-size: 0.875rem;">'.
+                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style="width: 1.25rem; height: 1.25rem; flex-shrink: 0;">'.
+                        '<path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />'.
+                        '</svg>'.
+                        '<span>This invoice was not emailed: '.e($record->emailWarning()).'</span>'.
+                        '</div>'
+                    ))
+                    ->columnSpanFull()
+                    ->visible(fn ($record) => $record?->emailWarning() !== null),
+
                 Section::make('Original PDF')
                     ->components([
                         Placeholder::make('pdf_preview')
@@ -92,6 +105,11 @@ class InvoiceForm
                             ->content(fn ($record) => $record?->error_message)
                             ->visible(fn ($record) => $record?->status === InvoiceStatus::Failed),
 
+                        Placeholder::make('sent_display')
+                            ->label('Emailed')
+                            ->content(fn ($record) => "To {$record->sent_to} on {$record->sent_at?->format('j M Y, H:i')}")
+                            ->visible(fn ($record) => $record?->sent_at !== null),
+
                         Placeholder::make('write_off_display')
                             ->label('Write-off Amount')
                             ->content(fn ($record) => number_format($record->write_off_amount / 100, 2).' '.$record->currency)
@@ -109,6 +127,13 @@ class InvoiceForm
                             ->live()
                             ->default(fn () => \App\Models\Person::default()?->id)
                             ->helperText('Required - determines the invoice number'),
+
+                        Select::make('brand_id')
+                            ->label('Brand')
+                            ->relationship('brand', 'name')
+                            ->preload()
+                            ->placeholder('No brand')
+                            ->helperText('Who the invoice email comes from. Invoices made from Stripe take their account\'s brand.'),
 
                         Placeholder::make('invoice_number_preview')
                             ->label('Invoice Number')
@@ -178,6 +203,9 @@ class InvoiceForm
                                         if (empty($get('customer_tax_id')) && $customer->tax_id) {
                                             $set('customer_tax_id', $customer->tax_id);
                                         }
+                                        if (empty($get('customer_email')) && $customer->email) {
+                                            $set('customer_email', $customer->email);
+                                        }
                                     }
                                 }
                             })
@@ -235,6 +263,11 @@ class InvoiceForm
                             ->helperText('Leave empty to use customer record address'),
 
                         TextInput::make('customer_tax_id'),
+
+                        TextInput::make('customer_email')
+                            ->email()
+                            ->maxLength(255)
+                            ->helperText('Where the invoice is emailed'),
                     ])
                     ->columns(2),
 

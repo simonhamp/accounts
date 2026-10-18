@@ -3,8 +3,10 @@
 namespace App\Filament\Resources\Invoices\Tables;
 
 use App\Enums\InvoiceStatus;
+use App\Filament\Resources\Invoices\Actions\EmailInvoiceAction;
 use App\Filament\Resources\Quotes\QuoteResource;
 use App\Filament\Resources\StripeTransactions\StripeTransactionResource;
+use App\Jobs\SendInvoiceEmail;
 use App\Services\InvoiceService;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -43,6 +45,16 @@ class InvoicesTable
                     ->icon(fn ($state) => $state ? 'heroicon-o-exclamation-triangle' : null)
                     ->color('warning')
                     ->tooltip('Invoice over €400 - Customer Tax ID required'),
+                IconColumn::make('email_warning')
+                    ->label('')
+                    ->state(fn ($record) => $record->emailWarning() !== null)
+                    ->icon(fn ($state) => $state ? 'heroicon-o-envelope' : null)
+                    ->color('warning')
+                    ->tooltip(fn ($record) => $record->emailWarning() ? 'Not emailed: '.$record->emailWarning() : null),
+                TextColumn::make('brand.name')
+                    ->label('Brand')
+                    ->placeholder('No brand')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('person.name')
                     ->placeholder('Unassigned')
                     ->searchable(),
@@ -72,6 +84,9 @@ class InvoicesTable
                 TextColumn::make('customer_tax_id')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('customer_email')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('total_amount')
                     ->money(fn ($record) => $record->currency, divideBy: 100)
                     ->sortable(),
@@ -83,6 +98,13 @@ class InvoicesTable
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('generated_at')
                     ->dateTime()
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('sent_at')
+                    ->label('Emailed')
+                    ->dateTime()
+                    ->description(fn ($record) => $record->sent_to)
+                    ->placeholder('Not emailed')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('created_at')
@@ -157,6 +179,7 @@ class InvoicesTable
                                     ->send();
                             }
                         }),
+                    EmailInvoiceAction::make(),
                     Action::make('markSent')
                         ->label('Mark as Sent')
                         ->icon('heroicon-o-paper-airplane')
@@ -242,6 +265,53 @@ class InvoicesTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    BulkAction::make('emailInvoices')
+                        ->label('Email to Customers')
+                        ->icon('heroicon-o-envelope')
+                        ->color('primary')
+                        ->requiresConfirmation()
+                        ->modalHeading('Email Invoices to Customers')
+                        ->modalDescription(function (Collection $records) {
+                            [$sendable, $blocked] = $records->partition(fn ($record) => $record->canBeEmailed());
+
+                            $message = $sendable->isEmpty()
+                                ? 'None of the selected invoices can be emailed.'
+                                : "{$sendable->count()} invoice(s) will be emailed to their customers, "
+                                    .$sendable->countBy(fn ($record) => $record->brand->name)
+                                        ->map(fn (int $count, string $brand) => "{$count} as {$brand}")
+                                        ->implode(', ')
+                                    .'.';
+
+                            $alreadySent = $sendable->filter(fn ($record) => $record->sent_at !== null)->count();
+                            if ($alreadySent > 0) {
+                                $message .= " {$alreadySent} of them have been emailed before and will be sent again.";
+                            }
+
+                            if ($blocked->isNotEmpty()) {
+                                $message .= " {$blocked->count()} will be skipped: "
+                                    .$blocked->countBy(fn ($record) => $record->emailBlocker())
+                                        ->map(fn (int $count, string $reason) => "{$reason} ({$count})")
+                                        ->implode(' ');
+                            }
+
+                            return $message;
+                        })
+                        ->action(function (Collection $records) {
+                            $sendable = $records->filter(fn ($record) => $record->canBeEmailed());
+
+                            foreach ($sendable as $record) {
+                                SendInvoiceEmail::dispatch($record);
+                            }
+
+                            if ($sendable->isNotEmpty()) {
+                                Notification::make()
+                                    ->success()
+                                    ->title('Invoice emails queued')
+                                    ->body("{$sendable->count()} invoice(s) are on their way.")
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
                     BulkAction::make('markSent')
                         ->label('Mark as Sent')
                         ->icon('heroicon-o-paper-airplane')
@@ -398,6 +468,7 @@ class InvoicesTable
                     DeleteBulkAction::make(),
                 ]),
             ])
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['brand', 'quote']))
             ->defaultSort('created_at', 'desc');
     }
 }

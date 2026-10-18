@@ -221,7 +221,7 @@
             </div>
             <div class="header-right">
                 <div class="from-details">
-                    <strong>{{ $invoice->person->name }}{{ $invoice->person->entity_type?->legalSuffix() ? ', '.$invoice->person->entity_type->legalSuffix() : '' }}</strong><br>
+                    <strong>{{ $invoice->person->legalName() }}</strong><br>
                     {{ $invoice->person->address }}<br>
                     {{ $invoice->person->postal_code }}, {{ $invoice->person->city }}<br>
                     {{ $invoice->person->country }}<br>

@@ -13,6 +13,7 @@ class StripeAccount extends Model
 
     protected $fillable = [
         'person_id',
+        'brand_id',
         'account_name',
         'api_key',
         'last_synced_at',
@@ -29,6 +30,15 @@ class StripeAccount extends Model
     public function person(): BelongsTo
     {
         return $this->belongsTo(Person::class);
+    }
+
+    /**
+     * The brand invoices from this account's payments are issued and emailed
+     * under.
+     */
+    public function brand(): BelongsTo
+    {
+        return $this->belongsTo(Brand::class);
     }
 
     public function transactions(): HasMany

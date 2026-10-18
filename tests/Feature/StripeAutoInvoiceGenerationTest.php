@@ -5,6 +5,7 @@ use App\Models\Person;
 use App\Models\StripeAccount;
 use App\Models\StripeTransaction;
 use App\Services\InvoiceService;
+use Illuminate\Support\Facades\Storage;
 
 it('generates one invoice per ready transaction in date order', function () {
     $person = Person::factory()->create([
@@ -148,4 +149,90 @@ it('allows invoice generation when the earlier transaction is ignored', function
     $invoice = app(InvoiceService::class)->generateInvoiceForTransaction($ready);
 
     expect($invoice->invoice_number)->toBe('OK-00001');
+});
+
+it('carries the customer tax IDs and email onto the invoice', function () {
+    Storage::fake('local');
+
+    $person = Person::factory()->create();
+    $account = StripeAccount::factory()->create(['person_id' => $person->id]);
+
+    StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'type' => 'payment',
+        'amount' => 5000,
+        'customer_name' => 'Acme GmbH',
+        'customer_email' => 'billing@acme.test',
+        'customer_address' => 'Hauptstrasse 1, Berlin, 10115, DE',
+        'customer_tax_ids' => [
+            ['type' => 'eu_vat', 'value' => 'DE123456789'],
+            ['type' => 'de_stn', 'value' => '1234567890'],
+        ],
+        'status' => 'ready',
+    ]);
+
+    app(InvoiceService::class)->generateInvoicesForReadyTransactions($account);
+
+    $invoice = Invoice::where('person_id', $person->id)->sole();
+
+    expect($invoice->customer_name)->toBe('Acme GmbH')
+        ->and($invoice->customer_address)->toBe('Hauptstrasse 1, Berlin, 10115, DE')
+        ->and($invoice->customer_tax_id)->toBe('DE123456789, 1234567890')
+        ->and($invoice->customer_email)->toBe('billing@acme.test');
+});
+
+it('leaves the tax ID empty when the transaction has none', function () {
+    Storage::fake('local');
+
+    $person = Person::factory()->create();
+    $account = StripeAccount::factory()->create(['person_id' => $person->id]);
+
+    StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'type' => 'payment',
+        'amount' => 5000,
+        'customer_tax_ids' => null,
+        'status' => 'ready',
+    ]);
+
+    app(InvoiceService::class)->generateInvoicesForReadyTransactions($account);
+
+    expect(Invoice::where('person_id', $person->id)->sole()->customer_tax_id)->toBeNull();
+});
+
+it('links a refund credit note to the invoice for the refunded charge', function () {
+    Storage::fake('local');
+
+    $person = Person::factory()->create(['invoice_prefix' => 'CRN', 'next_invoice_number' => 1]);
+    $account = StripeAccount::factory()->create(['person_id' => $person->id]);
+
+    StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'stripe_transaction_id' => 'ch_refunded',
+        'type' => 'payment',
+        'amount' => 5000,
+        'customer_email' => 'billing@acme.test',
+        'transaction_date' => '2026-10-01',
+        'status' => 'ready',
+    ]);
+    StripeTransaction::factory()->create([
+        'stripe_account_id' => $account->id,
+        'stripe_transaction_id' => 're_refund',
+        'stripe_charge_id' => 'ch_refunded',
+        'type' => 'refund',
+        'amount' => -5000,
+        'customer_email' => 'billing@acme.test',
+        'transaction_date' => '2026-10-05',
+        'status' => 'ready',
+    ]);
+
+    app(InvoiceService::class)->generateInvoicesForReadyTransactions($account);
+
+    $invoice = Invoice::firstWhere('invoice_number', 'CRN-00001');
+    $creditNote = Invoice::firstWhere('invoice_number', 'CRN-00002');
+
+    expect($creditNote->isCreditNote())->toBeTrue()
+        ->and($creditNote->parent_invoice_id)->toBe($invoice->id)
+        ->and($creditNote->customer_email)->toBe('billing@acme.test')
+        ->and($invoice->parent_invoice_id)->toBeNull();
 });

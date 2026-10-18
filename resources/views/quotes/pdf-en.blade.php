@@ -128,7 +128,7 @@
             </div>
             <div class="header-right">
                 <div class="from-details">
-                    <strong>{{ $quote->person->name }}{{ $quote->person->entity_type?->legalSuffix() ? ', '.$quote->person->entity_type->legalSuffix() : '' }}</strong><br>
+                    <strong>{{ $quote->person->legalName() }}</strong><br>
                     {{ $quote->person->address }}<br>
                     {{ $quote->person->postal_code }}, {{ $quote->person->city }}<br>
                     {{ $quote->person->country }}<br>

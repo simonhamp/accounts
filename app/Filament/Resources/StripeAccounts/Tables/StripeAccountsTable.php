@@ -18,6 +18,9 @@ class StripeAccountsTable
                     ->searchable(),
                 TextColumn::make('account_name')
                     ->searchable(),
+                TextColumn::make('brand.name')
+                    ->label('Brand')
+                    ->placeholder('No brand'),
                 TextColumn::make('last_synced_at')
                     ->dateTime()
                     ->sortable(),

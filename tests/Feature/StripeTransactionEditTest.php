@@ -297,3 +297,32 @@ describe('View Other Income Action', function () {
             ->assertActionHidden('view_other_income');
     });
 });
+
+describe('Stripe invoice details', function () {
+    it('shows the Stripe invoice, original charge and tax IDs', function () {
+        $transaction = StripeTransaction::factory()->create([
+            'type' => 'refund',
+            'stripe_invoice_id' => 'in_123',
+            'stripe_charge_id' => 'ch_456',
+            'customer_tax_ids' => [['type' => 'eu_vat', 'value' => 'DE123456789']],
+        ]);
+
+        Livewire::test(EditStripeTransaction::class, ['record' => $transaction->id])
+            ->assertSuccessful()
+            ->assertFormSet([
+                'stripe_invoice_id' => 'in_123',
+                'stripe_charge_id' => 'ch_456',
+            ])
+            ->assertSee('DE123456789 (eu_vat)');
+    });
+
+    it('hides the Stripe invoice fields for a plain charge', function () {
+        $transaction = StripeTransaction::factory()->create(['type' => 'payment']);
+
+        Livewire::test(EditStripeTransaction::class, ['record' => $transaction->id])
+            ->assertSuccessful()
+            ->assertFormFieldIsHidden('stripe_invoice_id')
+            ->assertFormFieldIsHidden('stripe_charge_id')
+            ->assertDontSee('Customer tax IDs');
+    });
+});

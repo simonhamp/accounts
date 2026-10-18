@@ -28,6 +28,7 @@ class Invoice extends Model
 
     protected $fillable = [
         'person_id',
+        'brand_id',
         'customer_id',
         'parent_invoice_id',
         'bank_account_id',
@@ -39,6 +40,7 @@ class Invoice extends Model
         'customer_name',
         'customer_address',
         'customer_tax_id',
+        'customer_email',
         'total_amount',
         'tax_base_total',
         'tax_total',
@@ -52,6 +54,8 @@ class Invoice extends Model
         'pdf_path',
         'pdf_path_en',
         'generated_at',
+        'sent_at',
+        'sent_to',
         'status',
         'original_file_path',
         'extracted_data',
@@ -76,6 +80,7 @@ class Invoice extends Model
             'write_off_amount' => 'integer',
             'amount_eur' => 'integer',
             'generated_at' => 'datetime',
+            'sent_at' => 'datetime',
             'status' => InvoiceStatus::class,
             'extracted_data' => 'array',
         ];
@@ -528,6 +533,15 @@ class Invoice extends Model
         return $this->items()->whereNotNull('stripe_transaction_id')->exists();
     }
 
+    /**
+     * The brand the invoice is issued under. It decides who the invoice email
+     * comes from and which mail server sends it.
+     */
+    public function brand(): BelongsTo
+    {
+        return $this->belongsTo(Brand::class);
+    }
+
     public function scopePending(Builder $query): Builder
     {
         return $query->whereIn('status', [
@@ -658,6 +672,43 @@ class Invoice extends Model
         $this->update(['status' => InvoiceStatus::Sent]);
     }
 
+    public function canBeEmailed(): bool
+    {
+        return $this->emailBlocker() === null;
+    }
+
+    /**
+     * Why the invoice can't be emailed right now, or null when it can.
+     */
+    public function emailBlocker(): ?string
+    {
+        $brand = $this->brand;
+
+        return match (true) {
+            ! $this->isFinalized() => 'Only finalized invoices can be emailed.',
+            $brand === null => 'Pick a brand for this invoice first.',
+            ! $brand->email_invoices => "Invoice emails are turned off for {$brand->name}.",
+            ! $brand->hasCompleteMailSettings() => "{$brand->name}'s sender or mail server settings aren't complete.",
+            blank($this->customer_email) => 'Add a customer email to the invoice and save it first.',
+            default => null,
+        };
+    }
+
+    /**
+     * Record that the invoice was emailed. A Ready to Send invoice becomes
+     * Sent; one that is already sent, partially paid or paid keeps its status.
+     * Saved quietly: the email has already gone, so the invoice's own checks
+     * must not fail here and have the queue send it a second time.
+     */
+    public function markAsEmailed(string $recipient): void
+    {
+        $this->forceFill([
+            'sent_at' => now(),
+            'sent_to' => $recipient,
+            'status' => $this->isReadyToSend() ? InvoiceStatus::Sent : $this->status,
+        ])->saveQuietly();
+    }
+
     public function markAsPartiallyPaid(): void
     {
         $this->update(['status' => InvoiceStatus::PartiallyPaid]);
@@ -695,5 +746,20 @@ class Invoice extends Model
         $threshold = 40000; // €400 in cents
 
         return ($this->amount_eur ?? 0) > $threshold && empty($this->customer_tax_id);
+    }
+
+    /**
+     * For a Ready to Send invoice whose brand emails its invoices, the reason
+     * it can't be emailed, e.g. a missing customer email. Null otherwise.
+     * Invoices without a brand, or whose brand doesn't email invoices, aren't
+     * flagged.
+     */
+    public function emailWarning(): ?string
+    {
+        if (! $this->isReadyToSend() || ! $this->brand?->email_invoices) {
+            return null;
+        }
+
+        return $this->emailBlocker();
     }
 }
